@@ -165,7 +165,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M3 | ✅ Done | 107 tests pass (wallet API, model rules incl. ledger immutability hooks, money unit tests); POST /api/transactions is non-functional until M5 replaces it |
 | M4 | ✅ Done | 123 tests pass (16 funding incl. concurrent + same-key races, seed twice, production refusal); scripts run manually against dev DB; `runInTransaction` added here (needed by funding), TXN_MAX_ATTEMPTS default raised 5 -> 10 after measuring contention |
 | M5 | ✅ Done | 174 tests pass (transfer 31, idempotency 14 incl. both uncertain-commit cases, retry loop 8 incl. a real WriteConflict); mutation check (debit outside session) caught by the atomicity test; manual HTTP run against dev DB |
-| M6 | ⬜ | |
+| M6 | ✅ Done | 184 tests pass; concurrency suite (10 scenarios, DB invariants after each) passed 9/9 repeated runs; removing the balance guards makes the 3 double-spend tests fail; reconcile PASS assertion added to the invariant helper in M8 |
 | M7 | ⬜ | |
 | M8 | ⬜ | |
 | M9 | ⬜ | |
