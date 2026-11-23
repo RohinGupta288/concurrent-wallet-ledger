@@ -164,7 +164,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M2 | ✅ Done | 36 tests pass (24 auth); manual register/login/me/logout against dev DB; system funding endpoint removed (funding returns in M4 as a dev-only script) |
 | M3 | ✅ Done | 107 tests pass (wallet API, model rules incl. ledger immutability hooks, money unit tests); POST /api/transactions is non-functional until M5 replaces it |
 | M4 | ✅ Done | 123 tests pass (16 funding incl. concurrent + same-key races, seed twice, production refusal); scripts run manually against dev DB; `runInTransaction` added here (needed by funding), TXN_MAX_ATTEMPTS default raised 5 -> 10 after measuring contention |
-| M5 | ⬜ | |
+| M5 | ✅ Done | 174 tests pass (transfer 31, idempotency 14 incl. both uncertain-commit cases, retry loop 8 incl. a real WriteConflict); mutation check (debit outside session) caught by the atomicity test; manual HTTP run against dev DB |
 | M6 | ⬜ | |
 | M7 | ⬜ | |
 | M8 | ⬜ | |

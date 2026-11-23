@@ -4,10 +4,10 @@ const transactionController = require("../controllers/transaction.controller")
 
 const transactionRoutes = Router()
 
-/**
- * - POST /api/transactions/
- * - Create a new transaction
- */
-transactionRoutes.post("/", authMiddleware, transactionController.createTransaction)
+// Every transaction route requires a logged-in user.
+transactionRoutes.use(authMiddleware)
+
+/** POST /api/transactions - transfer money from my wallet to another wallet. */
+transactionRoutes.post("/", transactionController.createTransaction)
 
 module.exports = transactionRoutes
