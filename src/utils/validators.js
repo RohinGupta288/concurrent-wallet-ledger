@@ -18,6 +18,15 @@ const NAME_MAX_LENGTH = 100
 const PASSWORD_MIN_LENGTH = 8
 const PASSWORD_MAX_BYTES = 72 // bcrypt ignores everything after 72 bytes
 
+/**
+ * True for a 24-character hex string such as "665f1c2e9b1d4a3f8c0e1234".
+ * (mongoose.isValidObjectId also accepts any 12-character string, which is
+ * too loose for checking request input.)
+ */
+function isObjectIdString(value) {
+    return typeof value === "string" && /^[0-9a-fA-F]{24}$/.test(value)
+}
+
 function validationError(details) {
     return new AppError(400, "VALIDATION_ERROR", "Request validation failed", details)
 }
@@ -78,6 +87,7 @@ function validateLogin(body) {
 }
 
 module.exports = {
+    isObjectIdString,
     validationError,
     requireJsonObject,
     normalizeEmail,

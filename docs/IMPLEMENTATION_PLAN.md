@@ -162,7 +162,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M0 | ✅ Done | |
 | M1 | ✅ Done | 12 tests pass; db:dev start/stop/restart and `npm start` + `/health` verified manually |
 | M2 | ✅ Done | 36 tests pass (24 auth); manual register/login/me/logout against dev DB; system funding endpoint removed (funding returns in M4 as a dev-only script) |
-| M3 | ⬜ | |
+| M3 | ✅ Done | 107 tests pass (wallet API, model rules incl. ledger immutability hooks, money unit tests); POST /api/transactions is non-functional until M5 replaces it |
 | M4 | ⬜ | |
 | M5 | ⬜ | |
 | M6 | ⬜ | |
