@@ -1,6 +1,6 @@
 const mongoose = require("mongoose")
 const bcrypt = require("bcryptjs")
-
+const { config } = require("../config/env")
 
 const userSchema = new mongoose.Schema({
     email: {
@@ -8,49 +8,35 @@ const userSchema = new mongoose.Schema({
         required: [ true, "Email is required for creating a user" ],
         trim: true,
         lowercase: true,
-        match: [ /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, "Invalid Email address" ],
-        unique: [ true, "Email already exists." ]
+        maxlength: 254,
+        match: [ /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, "Invalid Email address" ],
+        // Database-enforced: two users can never share an email, even if two
+        // registrations arrive at the same instant.
+        unique: true,
     },
     name: {
         type: String,
-        required: [ true, "Name is required for creating an account" ]
+        required: [ true, "Name is required for creating an account" ],
+        trim: true,
+        maxlength: 100,
     },
     password: {
         type: String,
         required: [ true, "Password is required for creating an account" ],
-        minlength: [ 6, "password should contain more than 6 character" ],
-        select: false
+        // Never returned by queries unless explicitly requested with .select("+password").
+        select: false,
     },
-    systemUser: {
-        type: Boolean,
-        default: false,
-        immutable: true,
-        select: false
-    }
 }, {
-    timestamps: true
+    timestamps: true,
 })
 
+// Hash the password whenever it is set or changed. Only the bcrypt hash is stored.
 userSchema.pre("save", async function () {
     if (!this.isModified("password")) {
         return
     }
-
-    const hash = await bcrypt.hash(this.password, 10)
-    this.password = hash
-
-    return
-
+    this.password = await bcrypt.hash(this.password, config.bcryptSaltRounds)
 })
-
-userSchema.methods.comparePassword = async function (password) {
-
-    console.log(password, this.password)
-
-    return await bcrypt.compare(password, this.password)
-
-}
-
 
 const userModel = mongoose.model("user", userSchema)
 

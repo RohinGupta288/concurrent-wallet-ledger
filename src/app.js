@@ -6,7 +6,6 @@
  * A request flows through the middleware below from top to bottom.
  */
 const express = require("express")
-const cookieParser = require("cookie-parser")
 const requestId = require("./middleware/requestId.middleware")
 const requestLogger = require("./middleware/requestLogger.middleware")
 const { notFoundHandler, errorHandler } = require("./middleware/error.middleware")
@@ -23,7 +22,6 @@ app.disable("x-powered-by")
 app.use(requestId)
 app.use(requestLogger)
 app.use(express.json({ limit: "10kb" }))
-app.use(cookieParser())
 
 // 2. Routes
 app.get("/", (req, res) => {

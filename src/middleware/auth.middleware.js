@@ -1,84 +1,69 @@
-const userModel = require("../models/user.model")
+/**
+ * Authentication middleware for protected routes.
+ *
+ * Expects the header `Authorization: Bearer <JWT>`. On success it sets
+ *   req.user  - the authenticated user document (without password)
+ *   req.auth  - { tokenHash, expiresAt } used by logout
+ * and calls next(). Otherwise it throws a 401 AppError.
+ *
+ * Tokens are only read from the Authorization header, never from cookies:
+ * browsers attach cookies automatically, which would let another website
+ * trigger money transfers on a logged-in user's behalf (CSRF).
+ */
+const crypto = require("crypto")
 const jwt = require("jsonwebtoken")
+const mongoose = require("mongoose")
+const userModel = require("../models/user.model")
 const tokenBlackListModel = require("../models/blackList.model")
+const AppError = require("../utils/AppError")
+const { config } = require("../config/env")
 
+function readBearerToken(req) {
+    const header = req.get("Authorization")
+    if (!header) return null
+    const [ scheme, token ] = header.split(" ")
+    if (!scheme || scheme.toLowerCase() !== "bearer" || !token) return null
+    return token
+}
 
+function hashToken(token) {
+    return crypto.createHash("sha256").update(token).digest("hex")
+}
 
 async function authMiddleware(req, res, next) {
-
-    const token = req.cookies.token || req.headers.authorization?.split(" ")[ 1 ]
-
+    const token = readBearerToken(req)
     if (!token) {
-        return res.status(401).json({
-            message: "Unauthorized access, token is missing"
-        })
+        throw new AppError(401, "UNAUTHENTICATED", "Missing 'Authorization: Bearer <token>' header")
     }
 
-    const isBlacklisted = await tokenBlackListModel.findOne({ token })
-
-    if (isBlacklisted) {
-        return res.status(401).json({
-            message: "Unauthorized access, token is invalid"
-        })
-    }
-
+    let payload
     try {
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET)
-
-        const user = await userModel.findById(decoded.userId)
-
-        req.user = user
-
-        return next()
-
+        // Pin the algorithm so a forged token cannot choose a weaker one.
+        payload = jwt.verify(token, config.jwtSecret, { algorithms: [ "HS256" ] })
     } catch (err) {
-        return res.status(401).json({
-            message: "Unauthorized access, token is invalid"
-        })
-    }
-}
-async function authSystemUserMiddleware(req, res, next) {
-
-    const token = req.cookies.token || req.headers.authorization?.split(" ")[ 1 ]
-
-    if (!token) {
-        return res.status(401).json({
-            message: "Unauthorized access, token is missing"
-        })
-    }
-
-    const isBlacklisted = await tokenBlackListModel.findOne({ token })
-
-    if (isBlacklisted) {
-        return res.status(401).json({
-            message: "Unauthorized access, token is invalid"
-        })
-    }
-
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET)
-
-        const user = await userModel.findById(decoded.userId).select("+systemUser")
-        if (!user.systemUser) {
-            return res.status(403).json({
-                message: "Forbidden access, not a system user"
-            })
+        if (err.name === "TokenExpiredError") {
+            throw new AppError(401, "TOKEN_EXPIRED", "Authentication token has expired; log in again")
         }
-
-        req.user = user
-
-        return next()
-    }
-    catch (err) {
-        return res.status(401).json({
-            message: "Unauthorized access, token is invalid"
-        })
+        throw new AppError(401, "INVALID_TOKEN", "Authentication token is invalid")
     }
 
+    if (typeof payload.userId !== "string" || !mongoose.isValidObjectId(payload.userId)) {
+        throw new AppError(401, "INVALID_TOKEN", "Authentication token is invalid")
+    }
+
+    const tokenHash = hashToken(token)
+    if (await tokenBlackListModel.exists({ tokenHash })) {
+        throw new AppError(401, "INVALID_TOKEN", "Authentication token has been revoked")
+    }
+
+    const user = await userModel.findById(payload.userId)
+    if (!user) {
+        throw new AppError(401, "INVALID_TOKEN", "The user for this token no longer exists")
+    }
+
+    req.user = user
+    req.auth = { tokenHash, expiresAt: new Date(payload.exp * 1000) }
+    next()
 }
 
-module.exports = {
-    authMiddleware,
-    authSystemUserMiddleware
-}
+module.exports = { authMiddleware }

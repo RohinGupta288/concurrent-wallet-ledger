@@ -17,6 +17,12 @@ async function start() {
     const server = app.listen(config.port, () => {
         logger.info("server.started", { port: config.port, nodeEnv: config.nodeEnv })
     })
+    // e.g. EADDRINUSE when another process already uses the port: fail loudly.
+    server.on("error", async (err) => {
+        logger.error("server.listen_failed", { code: err.code, message: err.message })
+        await disconnectFromDB()
+        process.exit(1)
+    })
 
     // Graceful shutdown: stop accepting connections, let in-flight requests
     // finish, then close the database connection.
