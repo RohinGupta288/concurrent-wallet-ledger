@@ -11,6 +11,7 @@
  * AppError(400, "VALIDATION_ERROR") listing every invalid field.
  */
 const AppError = require("./AppError")
+const { MAX_AMOUNT_PAISE, isValidAmount } = require("./money")
 
 // Pragmatic email shape check: something@something.tld, no spaces.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -86,7 +87,50 @@ function validateLogin(body) {
     return { email: body.email.trim().toLowerCase(), password: body.password }
 }
 
+// Letters, digits and _ . : - ; long enough to be unique (e.g. a UUID).
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_.:-]{8,128}$/
+
+function isValidIdempotencyKey(value) {
+    return typeof value === "string" && IDEMPOTENCY_KEY_PATTERN.test(value)
+}
+
+const AMOUNT_RULE = `amount must be an integer number of paise from 1 to ${MAX_AMOUNT_PAISE}`
+const IDEMPOTENCY_KEY_RULE = "idempotencyKey must be 8-128 characters: letters, digits, _ . : -"
+
+/** POST /api/transactions body: { fromAccount, toAccount, amount, idempotencyKey }. */
+function validateTransfer(body) {
+    requireJsonObject(body)
+    const errors = {}
+
+    if (!isObjectIdString(body.fromAccount)) {
+        errors.fromAccount = "fromAccount must be a wallet id (24-character hex string)"
+    }
+    if (!isObjectIdString(body.toAccount)) {
+        errors.toAccount = "toAccount must be a wallet id (24-character hex string)"
+    } else if (!errors.fromAccount && body.toAccount.toLowerCase() === body.fromAccount.toLowerCase()) {
+        errors.toAccount = "toAccount must be different from fromAccount"
+    }
+    if (!isValidAmount(body.amount)) {
+        errors.amount = AMOUNT_RULE
+    }
+    if (!isValidIdempotencyKey(body.idempotencyKey)) {
+        errors.idempotencyKey = IDEMPOTENCY_KEY_RULE
+    }
+
+    if (Object.keys(errors).length > 0) throw validationError(errors)
+    return {
+        fromAccount: body.fromAccount.toLowerCase(),
+        toAccount: body.toAccount.toLowerCase(),
+        amount: body.amount,
+        idempotencyKey: body.idempotencyKey,
+    }
+}
+
 module.exports = {
+    AMOUNT_RULE,
+    IDEMPOTENCY_KEY_RULE,
+    isValidIdempotencyKey,
+    validateTransfer,
     isObjectIdString,
     validationError,
     requireJsonObject,

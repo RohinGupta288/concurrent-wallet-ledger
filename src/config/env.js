@@ -16,7 +16,7 @@ const config = {
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || "1d",
     bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS || 10),
     // Upper bound on attempts for one MongoDB transaction (see config/transaction.js).
-    txnMaxAttempts: Number(process.env.TXN_MAX_ATTEMPTS || 5),
+    txnMaxAttempts: Number(process.env.TXN_MAX_ATTEMPTS || 10),
 }
 
 /**

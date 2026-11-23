@@ -7,3 +7,4 @@ process.env.JWT_SECRET = "test-only-secret-0123456789-abcdefghijklmnopqrstuvwxyz
 process.env.JWT_EXPIRES_IN = "1h"
 process.env.BCRYPT_SALT_ROUNDS = "4" // fast hashing for tests
 process.env.LOG_LEVEL = process.env.TEST_LOG_LEVEL || "silent"
+process.env.TXN_MAX_ATTEMPTS = "10" // same as the default; fixed so a local .env cannot change test behaviour

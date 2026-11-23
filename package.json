@@ -11,6 +11,9 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "db:dev": "node scripts/dev-db.js",
+    "seed": "node scripts/seed.js",
+    "fund": "node scripts/fund-wallet.js",
+    "wallet:status": "node scripts/set-wallet-status.js",
     "test": "jest --runInBand"
   },
   "keywords": [],

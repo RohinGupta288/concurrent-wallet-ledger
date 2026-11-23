@@ -84,7 +84,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 **Why races are impossible:** two transfers from the same wallet must both write the *same* account document. MongoDB allows only one in-progress transaction to write a document. The other receives a `WriteConflict` (labelled `TransientTransactionError`), is aborted, and is retried from the beginning. The retry sees the committed balance, so the `$gte` guard rejects an overdraft. Transfers on disjoint wallets don't conflict and run in parallel. No in-memory locks are used.
 
 **Bounded retries (`src/config/transaction.js`):**
-- At most `TXN_MAX_ATTEMPTS` (default 5) attempts on `TransientTransactionError`, with a small jittered backoff.
+- At most `TXN_MAX_ATTEMPTS` (default 10; originally planned as 5, raised after measurement in M4: on this machine 5-way contention on one document already needed up to 5 attempts and 40-way needed 9) attempts on `TransientTransactionError`, with full-jitter exponential backoff capped at 1 s, so the worst case is bounded (about 5.5 s of waiting).
 - `commitTransaction` is retried at most 3 times on `UnknownTransactionCommitResult`.
 - When the limit is exhausted, the API returns 503 `TRANSACTION_RETRY_EXHAUSTED`: "retry with the same idempotency key".
 
@@ -163,7 +163,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M1 | ✅ Done | 12 tests pass; db:dev start/stop/restart and `npm start` + `/health` verified manually |
 | M2 | ✅ Done | 36 tests pass (24 auth); manual register/login/me/logout against dev DB; system funding endpoint removed (funding returns in M4 as a dev-only script) |
 | M3 | ✅ Done | 107 tests pass (wallet API, model rules incl. ledger immutability hooks, money unit tests); POST /api/transactions is non-functional until M5 replaces it |
-| M4 | ⬜ | |
+| M4 | ✅ Done | 123 tests pass (16 funding incl. concurrent + same-key races, seed twice, production refusal); scripts run manually against dev DB; `runInTransaction` added here (needed by funding), TXN_MAX_ATTEMPTS default raised 5 -> 10 after measuring contention |
 | M5 | ⬜ | |
 | M6 | ⬜ | |
 | M7 | ⬜ | |
