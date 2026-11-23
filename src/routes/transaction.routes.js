@@ -10,4 +10,10 @@ transactionRoutes.use(authMiddleware)
 /** POST /api/transactions - transfer money from my wallet to another wallet. */
 transactionRoutes.post("/", transactionController.createTransaction)
 
+/** GET /api/transactions?page=1&limit=20 - my wallet's history, newest first. */
+transactionRoutes.get("/", transactionController.listTransactions)
+
+/** GET /api/transactions/:transactionId - details, if my wallet took part. */
+transactionRoutes.get("/:transactionId", transactionController.getTransaction)
+
 module.exports = transactionRoutes

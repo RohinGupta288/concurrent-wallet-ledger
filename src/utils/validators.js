@@ -126,7 +126,37 @@ function validateTransfer(body) {
     }
 }
 
+const DEFAULT_PAGE_SIZE = 20
+const MAX_PAGE_SIZE = 100
+const MAX_PAGE = 100000
+
+/** Parses a query-string value that must be a whole number; returns null otherwise. */
+function parseWholeNumber(value) {
+    if (typeof value !== "string" || !/^\d{1,9}$/.test(value)) return null
+    return Number(value)
+}
+
+/** ?page=1&limit=20 for history. Both optional; page >= 1, 1 <= limit <= 100. */
+function validatePagination(query) {
+    const errors = {}
+    let page = 1
+    let limit = DEFAULT_PAGE_SIZE
+
+    if (query.page !== undefined) {
+        page = parseWholeNumber(query.page)
+        if (page === null || page < 1 || page > MAX_PAGE) errors.page = `page must be a whole number from 1 to ${MAX_PAGE}`
+    }
+    if (query.limit !== undefined) {
+        limit = parseWholeNumber(query.limit)
+        if (limit === null || limit < 1 || limit > MAX_PAGE_SIZE) errors.limit = `limit must be a whole number from 1 to ${MAX_PAGE_SIZE}`
+    }
+
+    if (Object.keys(errors).length > 0) throw validationError(errors)
+    return { page, limit }
+}
+
 module.exports = {
+    validatePagination,
     AMOUNT_RULE,
     IDEMPOTENCY_KEY_RULE,
     isValidIdempotencyKey,

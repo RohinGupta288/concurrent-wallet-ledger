@@ -164,9 +164,9 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M2 | ✅ Done | 36 tests pass (24 auth); manual register/login/me/logout against dev DB; system funding endpoint removed (funding returns in M4 as a dev-only script) |
 | M3 | ✅ Done | 107 tests pass (wallet API, model rules incl. ledger immutability hooks, money unit tests); POST /api/transactions is non-functional until M5 replaces it |
 | M4 | ✅ Done | 123 tests pass (16 funding incl. concurrent + same-key races, seed twice, production refusal); scripts run manually against dev DB; `runInTransaction` added here (needed by funding), TXN_MAX_ATTEMPTS default raised 5 -> 10 after measuring contention |
-| M5 | ✅ Done | 174 tests pass (transfer 31, idempotency 14 incl. both uncertain-commit cases, retry loop 8 incl. a real WriteConflict); mutation check (debit outside session) caught by the atomicity test; manual HTTP run against dev DB |
+| M5 | ✅ Done | 174 tests pass (transfer 29, idempotency 14 incl. both uncertain-commit cases, retry loop 8 incl. a real WriteConflict); mutation check (debit outside session) caught by the atomicity test; manual HTTP run against dev DB |
 | M6 | ✅ Done | 184 tests pass; concurrency suite (10 scenarios, DB invariants after each) passed 9/9 repeated runs; removing the balance guards makes the 3 double-spend tests fail; reconcile PASS assertion added to the invariant helper in M8 |
-| M7 | ⬜ | |
+| M7 | ✅ Done | 202 tests pass (18 history: ordering, page boundaries, per-user visibility, no PII, detail 404s); explain() shows SORT_MERGE over both history indexes (no collection scan, no in-memory sort) |
 | M8 | ⬜ | |
 | M9 | ⬜ | |
 | M10 | ⬜ | |
