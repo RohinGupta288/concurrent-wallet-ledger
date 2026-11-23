@@ -160,8 +160,8 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | # | Status | Notes |
 |---|---|---|
 | M0 | ✅ Done | |
-| M1 | ⏳ In progress | |
-| M2 | ⬜ | |
+| M1 | ✅ Done | 12 tests pass; db:dev start/stop/restart and `npm start` + `/health` verified manually |
+| M2 | ⏳ In progress | |
 | M3 | ⬜ | |
 | M4 | ⬜ | |
 | M5 | ⬜ | |

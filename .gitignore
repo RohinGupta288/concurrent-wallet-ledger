@@ -1,2 +1,15 @@
-/.env
+# Dependencies
 /node_modules
+
+# Local environment / secrets (keep .env.example)
+/.env
+/.env.*
+!/.env.example
+
+# Local MongoDB data and logs created by `npm run db:dev`
+/.data
+
+# Test and tooling output
+/coverage
+*.log
+npm-debug.log*
