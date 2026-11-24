@@ -1,0 +1,49 @@
+# Continuous integration: install dependencies and run the full test suite on
+# every push and pull request.
+#
+# No MongoDB service container is needed: the tests start a real mongod as a
+# single-node replica set through mongodb-memory-server (version pinned in
+# package.json -> config.mongodbMemoryServer.version), so multi-document
+# transactions work exactly as they do locally.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # Keep the ~100 MB mongod download outside node_modules so it can be cached
+      # (npm ci deletes node_modules on every run).
+      MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.cache/mongodb-binaries
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (version from .nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Cache the MongoDB binary used by the tests
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies (exactly as locked)
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
