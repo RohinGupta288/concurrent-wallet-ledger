@@ -1,0 +1,91 @@
+{
+  "runId": "a3d1bb1e",
+  "environment": {
+    "date": "2026-11-24T14:11:02.200Z",
+    "os": "Windows_NT 10.0.26300 (win32 x64)",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-1260P, 16 logical cores",
+    "memoryGB": 15.7,
+    "freeMemoryGB": 2.6,
+    "node": "v22.23.5",
+    "mongodb": "8.0.32",
+    "serverLogLevel": "warn",
+    "txnMaxAttempts": 10
+  },
+  "settings": {
+    "connections": 10,
+    "durationSeconds": 10,
+    "warmupSeconds": 2,
+    "users": 20
+  },
+  "results": [
+    {
+      "scenario": "GET balance (own wallet)",
+      "connections": 10,
+      "durationSeconds": 10,
+      "requests": 3684,
+      "throughputRps": 368.4,
+      "avgLatencyMs": 27.06,
+      "p50LatencyMs": 25.03,
+      "p95LatencyMs": 44.09,
+      "p99LatencyMs": 56.91,
+      "maxLatencyMs": 63.3,
+      "statusCodes": {
+        "200": 3684
+      },
+      "connectionErrors": 0,
+      "timeouts": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "scenario": "POST transfer, 10 disjoint wallet pairs",
+      "connections": 10,
+      "durationSeconds": 10,
+      "requests": 1610,
+      "throughputRps": 161,
+      "avgLatencyMs": 62.09,
+      "p50LatencyMs": 55.29,
+      "p95LatencyMs": 105.47,
+      "p99LatencyMs": 143.8,
+      "maxLatencyMs": 164.67,
+      "statusCodes": {
+        "201": 1610
+      },
+      "connectionErrors": 0,
+      "timeouts": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "scenario": "POST transfer, one hot sender wallet",
+      "connections": 10,
+      "durationSeconds": 10,
+      "requests": 637,
+      "throughputRps": 63.7,
+      "avgLatencyMs": 146.29,
+      "p50LatencyMs": 19.43,
+      "p95LatencyMs": 717.52,
+      "p99LatencyMs": 2440.62,
+      "maxLatencyMs": 3309.55,
+      "statusCodes": {
+        "201": 634,
+        "503": 3
+      },
+      "connectionErrors": 0,
+      "timeouts": 0,
+      "errorRatePercent": 0.47
+    }
+  ],
+  "correctness": {
+    "acknowledged201": 2627,
+    "acknowledgedButMissing": 0,
+    "rejected4xx": 0,
+    "rejectedButStored": 0,
+    "retryExhausted503": 3,
+    "retryExhausted503ButStored": 0,
+    "transfersStored": 2666,
+    "storedWithoutAnyResponse": 39,
+    "maxPossibleCutOff": 40,
+    "ok": true,
+    "reconciliation": "PASS",
+    "inconsistencyCount": 0
+  }
+}
