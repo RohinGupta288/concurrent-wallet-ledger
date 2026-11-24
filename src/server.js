@@ -41,6 +41,17 @@ async function start() {
     process.on("SIGTERM", () => shutdown("SIGTERM"))
 }
 
+// A bug outside any request (e.g. a promise nobody awaited). The process
+// state may be broken, so log it as one JSON line and exit; a process
+// manager or the developer restarts the server.
+process.on("unhandledRejection", (reason) => {
+    logger.error("process.unhandled_rejection", {
+        message: reason instanceof Error ? reason.message : String(reason),
+        stack: reason instanceof Error ? reason.stack : undefined,
+    })
+    process.exit(1)
+})
+
 start().catch((err) => {
     logger.error("server.start_failed", { message: err.message })
     process.exit(1)

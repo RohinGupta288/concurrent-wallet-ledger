@@ -168,7 +168,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M6 | ✅ Done | 184 tests pass; concurrency suite (10 scenarios, DB invariants after each) passed 9/9 repeated runs; removing the balance guards makes the 3 double-spend tests fail; reconcile PASS assertion added to the invariant helper in M8 |
 | M7 | ✅ Done | 202 tests pass (18 history: ordering, page boundaries, per-user visibility, no PII, detail 404s); explain() shows SORT_MERGE over both history indexes (no collection scan, no in-memory sort) |
 | M8 | ✅ Done | 226 tests pass (23 reconciliation: 15 corruption kinds detected, read-only check, CLI exit codes 0/1/2 and --json); reconcile() now asserted PASS inside every expectBooksBalanced() call, incl. all concurrency scenarios, plus 6 audits run during 30 in-flight transfers |
-| M9 | ⬜ | |
+| M9 | ✅ Done | 236 tests pass (10 observability: log fields per request, error codes, no query strings, no passwords/JWTs/secret/bodies in any log line, field-name redaction, 500 hides internals but logs stack + request id, retry logs, LOG_LEVEL); unhandledRejection handler in server.js |
 | M10 | ⬜ | |
 | M11 | ⬜ | |
 | M12 | ⬜ | |
