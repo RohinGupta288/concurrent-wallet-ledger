@@ -29,7 +29,7 @@ runScript(async () => {
     const wallet = user && await accountModel.findOneAndUpdate(
         { type: "WALLET", user: user._id },
         { $set: { status } },
-        { new: true }
+        { returnDocument: "after" }
     )
     if (!wallet) {
         console.error(`No wallet found for ${email}.`)

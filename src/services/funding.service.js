@@ -31,7 +31,7 @@ async function getOrCreateSystemAccount() {
         return await accountModel.findOneAndUpdate(
             { type: "SYSTEM_FUNDING" },
             { $setOnInsert: { type: "SYSTEM_FUNDING", status: "ACTIVE", currency: "INR", balance: 0 } },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: "after" }
         )
     } catch (err) {
         // Two simultaneous upserts: one inserted, the other hit the unique index.

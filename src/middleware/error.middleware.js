@@ -33,6 +33,14 @@ function toAppError(err) {
     if (err.type === "entity.too.large") {
         return new AppError(413, "PAYLOAD_TOO_LARGE", "Request body is too large")
     }
+    if (err.type === "charset.unsupported" || err.type === "encoding.unsupported") {
+        return new AppError(415, "UNSUPPORTED_MEDIA_TYPE", "Request body charset or encoding is not supported")
+    }
+    // Any other client error that express.json() reports (it marks them
+    // `expose: true` with a 4xx status): the client's fault, not a server bug.
+    if (err.expose === true && Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+        return new AppError(err.status, "BAD_REQUEST", "The request body could not be read")
+    }
     if (err instanceof mongoose.Error.ValidationError) {
         const details = {}
         for (const [ field, fieldError ] of Object.entries(err.errors)) {

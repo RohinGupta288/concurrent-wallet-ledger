@@ -11,12 +11,13 @@
  *   4. Reports, per scenario: requests, throughput, average latency, p95
  *      latency (computed from every single response time), status codes and
  *      error rate.
- *   5. Checks correctness afterwards: no acknowledged transfer may be missing,
- *      at most the requests cut off when a phase ended may be extra, and
- *      reconciliation must PASS. Exits 1 otherwise.
+ *   5. Checks correctness afterwards, idempotency key by key: every 201 is
+ *      stored, no 4xx is stored, 503s are reported (expected: none stored),
+ *      only requests cut off when a phase ended may be stored without an
+ *      answer, and reconciliation must PASS. Exits 1 otherwise.
  *
- * Safety limits: refuses NODE_ENV=production, refuses a non-local MONGO_URI,
- * at most 50 connections and 60 seconds per scenario.
+ * Safety limits: only NODE_ENV=development/test and a local MONGO_URI
+ * (scripts/script-helpers.js), at most 50 connections and 60 seconds per scenario.
  *
  * The numbers describe this machine only (server, database and load generator
  * all run on it); they are not a capacity guarantee.
@@ -38,13 +39,6 @@ const { runScript } = require("./script-helpers")
 const USERS = 20
 const WARMUP_SECONDS = 2
 const FUNDING_PER_USER = 10_000_000 // ₹1,00,000 each; transfers move 1 paise
-
-function assertLocalDatabase(uri) {
-    const host = new URL(uri.replace(/^mongodb(\+srv)?:\/\//, "http://")).hostname
-    if (![ "127.0.0.1", "localhost", "::1", "[::1]" ].includes(host)) {
-        throw new Error(`Refusing to load-test against a non-local database host "${host}".`)
-    }
-}
 
 function freePort() {
     return new Promise((resolve, reject) => {
@@ -111,19 +105,28 @@ function percentile(sorted, p) {
 
 /**
  * Runs one autocannon phase. `nextRequest(n)` returns { method, path, token, body }.
- * Returns every response's status and latency, plus autocannon's own counters.
+ * Returns every response's status and latency, autocannon's own counters and,
+ * for transfers, the idempotency key of every answered request grouped by
+ * status (`keysByStatus`), used by the correctness check.
+ *
+ * Keys are matched to responses through autocannon's per-connection `context`:
+ * each connection has at most one request in flight (no pipelining), and
+ * onResponse runs before that connection builds its next request.
  */
 function runPhase(base, { connections, duration, nextRequest }) {
     let n = 0
     const latencies = []
     const statuses = {}
+    const keysByStatus = {}
     const instance = autocannon({
         url: base,
         connections,
         duration,
+        pipelining: 1,
         requests: [ {
-            setupRequest: (req) => {
+            setupRequest: (req, context) => {
                 const r = nextRequest(n++)
+                context.idempotencyKey = r.body ? r.body.idempotencyKey : undefined
                 return {
                     ...req,
                     method: r.method,
@@ -132,13 +135,51 @@ function runPhase(base, { connections, duration, nextRequest }) {
                     body: r.body ? JSON.stringify(r.body) : undefined,
                 }
             },
+            onResponse: (status, body, context) => {
+                if (!context.idempotencyKey) return
+                if (!keysByStatus[ status ]) keysByStatus[ status ] = []
+                keysByStatus[ status ].push(context.idempotencyKey)
+            },
         } ],
     })
     instance.on("response", (client, statusCode, resBytes, responseTime) => {
         latencies.push(responseTime)
         statuses[ statusCode ] = (statuses[ statusCode ] || 0) + 1
     })
-    return instance.then((result) => ({ result, latencies, statuses }))
+    return instance.then((result) => ({ result, latencies, statuses, keysByStatus }))
+}
+
+/**
+ * Compares what clients were told with what the database holds, key by key.
+ *   - every 201 key must be stored (an acknowledged transfer may never be lost);
+ *   - every 4xx key must NOT be stored (a rejection applied nothing);
+ *   - a 503 key should not be stored; if one is, its commit outcome was unknown
+ *     (allowed by design: a same-key retry would replay it), so it is reported;
+ *   - a stored key with no answer at all was cut off when a phase's time ran
+ *     out: at most one per connection per transfer phase.
+ */
+function checkKeys(answered, storedKeys, maxCutOff) {
+    const stored = new Set(storedKeys)
+    const count = (keys, wantStored) => keys.filter((k) => stored.has(k) === wantStored).length
+    const acknowledged = answered[ 201 ] || []
+    const rejected4xx = Object.entries(answered).filter(([ s ]) => s >= 400 && s < 500).flatMap(([ , keys ]) => keys)
+    const retryExhausted503 = answered[ 503 ] || []
+    const answeredKeys = new Set(Object.values(answered).flat())
+    const cutOffStored = storedKeys.filter((k) => !answeredKeys.has(k)).length
+
+    const result = {
+        acknowledged201: acknowledged.length,
+        acknowledgedButMissing: count(acknowledged, false),
+        rejected4xx: rejected4xx.length,
+        rejectedButStored: count(rejected4xx, true),
+        retryExhausted503: retryExhausted503.length,
+        retryExhausted503ButStored: count(retryExhausted503, true),
+        transfersStored: storedKeys.length,
+        storedWithoutAnyResponse: cutOffStored,
+        maxPossibleCutOff: maxCutOff,
+    }
+    result.ok = result.acknowledgedButMissing === 0 && result.rejectedButStored === 0 && cutOffStored <= maxCutOff
+    return result
 }
 
 function summarize(name, expectedStatus, { result, latencies, statuses }, durationSeconds) {
@@ -195,14 +236,14 @@ runScript(async () => {
         console.error("Usage: npm run perf -- [--connections 1-50] [--duration 1-60] [--json]")
         return 1
     }
-    assertLocalDatabase(config.mongoUri)
+    // runScript() has already refused NODE_ENV=production and non-local databases.
 
     const runId = crypto.randomBytes(4).toString("hex")
     const port = await freePort()
     const server = await startServer(port)
     const base = `http://127.0.0.1:${port}`
     const results = []
-    let created201 = 0
+    const answered = {} // status -> idempotency keys, over all transfer phases (warm-up included)
 
     try {
         console.error(`perf run ${runId}: creating ${USERS} funded users...`)
@@ -252,22 +293,24 @@ runScript(async () => {
             console.error(`  ${scenario.name}: warm-up ${WARMUP_SECONDS}s, then ${connections} connections x ${duration}s`)
             const warmup = await runPhase(base, { connections, duration: WARMUP_SECONDS, nextRequest: scenario.nextRequest })
             const measured = await runPhase(base, { connections, duration, nextRequest: scenario.nextRequest })
-            if (scenario.expectedStatus === 201) {
-                created201 += (warmup.statuses[ 201 ] || 0) + (measured.statuses[ 201 ] || 0)
+            for (const phase of [ warmup, measured ]) {
+                for (const [ status, keys ] of Object.entries(phase.keysByStatus)) {
+                    answered[ status ] = (answered[ status ] || []).concat(keys)
+                }
             }
             results.push(summarize(scenario.name, scenario.expectedStatus, measured, duration))
         }
 
-        // Correctness after load. When a phase's time is up, autocannon drops the
-        // requests still in flight; the server may still complete those, so up to
-        // one transfer per connection per transfer phase can be stored without
-        // the client having seen its 201. Give them a moment to finish first.
+        // Correctness after load, key by key (checkKeys). When a phase's time is
+        // up, autocannon drops the requests still in flight; the server may
+        // still complete those. Give them a moment to finish first.
         await new Promise((resolve) => setTimeout(resolve, 3000))
         const transferPhases = 2 * scenarios.filter((s) => s.expectedStatus === 201).length // warm-up + measured
-        const stored = await transactionModel.countDocuments({
-            type: "TRANSFER",
-            initiatedBy: { $in: users.map((u) => new mongoose.Types.ObjectId(u.id)) },
-        })
+        const storedKeys = (await transactionModel.find(
+            { type: "TRANSFER", initiatedBy: { $in: users.map((u) => new mongoose.Types.ObjectId(u.id)) } },
+            { idempotencyKey: 1 }
+        ).lean()).map((t) => t.idempotencyKey)
+        const keyCheck = checkKeys(answered, storedKeys, connections * transferPhases)
         const reconciliation = await reconcile()
         const report = {
             runId,
@@ -275,10 +318,7 @@ runScript(async () => {
             settings: { connections, durationSeconds: duration, warmupSeconds: WARMUP_SECONDS, users: USERS },
             results,
             correctness: {
-                transfersAcknowledged201: created201,
-                transfersStored: stored,
-                storedButCutOffAtPhaseEnd: stored - created201,
-                maxPossibleCutOff: connections * transferPhases,
+                ...keyCheck,
                 reconciliation: reconciliation.status,
                 inconsistencyCount: reconciliation.inconsistencyCount,
             },
@@ -302,8 +342,7 @@ runScript(async () => {
             console.log(`Correctness: ${JSON.stringify(report.correctness)}`)
         }
 
-        const cutOff = stored - created201
-        const correct = cutOff >= 0 && cutOff <= connections * transferPhases && reconciliation.status === "PASS"
+        const correct = keyCheck.ok && reconciliation.status === "PASS"
         if (!correct) console.error("CORRECTNESS CHECK FAILED after load")
         return correct ? 0 : 1
     } finally {

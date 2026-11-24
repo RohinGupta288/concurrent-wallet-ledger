@@ -132,22 +132,44 @@ describe("seed script", () => {
     })
 })
 
-describe("development scripts refuse to run in production", () => {
+describe("development scripts refuse to run outside local development", () => {
     // Each case starts a new Node process; allow for slow machines.
     jest.setTimeout(120000)
 
-    test.each([
+    const scripts = [
         [ "seed.js", [] ],
         [ "fund-wallet.js", [ "--email", "a@example.com", "--amount", "10", "--key", "prod-check-1" ] ],
         [ "set-wallet-status.js", [ "--email", "a@example.com", "--status", "FROZEN" ] ],
-    ])("%s", (script, args) => {
-        const result = spawnSync(process.execPath, [ path.join(__dirname, "..", "scripts", script), ...args ], {
-            env: { ...process.env, NODE_ENV: "production" },
-            encoding: "utf8",
-            timeout: 90000,
-        })
+        [ "perf.js", [ "--duration", "1" ] ],
+    ]
+    const run = (script, args, env) => spawnSync(process.execPath, [ path.join(__dirname, "..", "scripts", script), ...args ], {
+        env: { ...process.env, ...env },
+        encoding: "utf8",
+        timeout: 90000,
+    })
 
+    test.each(scripts)("%s refuses NODE_ENV=production and other non-development values", async (script, args) => {
+        for (const nodeEnv of [ "production", "staging", "prod" ]) {
+            const result = run(script, args, { NODE_ENV: nodeEnv })
+            expect(result.status).toBe(1)
+            expect(result.stderr).toMatch(/Refusing to run.*NODE_ENV/)
+        }
+        expect(await accountModel.countDocuments()).toBe(0) // nothing was created
+    })
+
+    test.each(scripts)("%s refuses a database that is not on this machine", async (script, args) => {
+        const result = run(script, args, { MONGO_URI: "mongodb://db.example.com:27017/backend-ledger?replicaSet=rs0" })
         expect(result.status).toBe(1)
-        expect(result.stderr).toMatch(/Refusing to run/)
+        expect(result.stderr).toMatch(/Refusing to run.*local database/)
+    })
+
+    test("local-database detection", () => {
+        const { isLocalDatabase } = require("../scripts/script-helpers")
+        expect(isLocalDatabase("mongodb://127.0.0.1:27017/x?replicaSet=rs0")).toBe(true)
+        expect(isLocalDatabase("mongodb://localhost,127.0.0.1:27018/x")).toBe(true)
+        expect(isLocalDatabase("mongodb://user:pa%40ss@[::1]:27017/x")).toBe(true)
+        expect(isLocalDatabase("mongodb://127.0.0.1:27017,db.example.com:27017/x")).toBe(false)
+        expect(isLocalDatabase("mongodb+srv://cluster0.example.mongodb.net/x")).toBe(false)
+        expect(isLocalDatabase("mongodb://127.0.0.1.evil.com/x")).toBe(false)
     })
 })

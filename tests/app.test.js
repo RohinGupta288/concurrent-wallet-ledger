@@ -49,6 +49,16 @@ describe("error handling", () => {
         expect(res.status).toBe(413)
         expect(res.body.error.code).toBe("PAYLOAD_TOO_LARGE")
     })
+
+    test.each([
+        [ "an unsupported charset", { "Content-Type": "application/json; charset=bogus-xyz" } ],
+        [ "an unsupported Content-Encoding", { "Content-Type": "application/json", "Content-Encoding": "foo" } ],
+    ])("%s returns 415, not a 500 server error", async (name, headers) => {
+        const res = await request(app).post("/api/auth/login").set(headers).send("{}")
+
+        expect(res.status).toBe(415)
+        expect(res.body.error.code).toBe("UNSUPPORTED_MEDIA_TYPE")
+    })
 })
 
 describe("request ids", () => {

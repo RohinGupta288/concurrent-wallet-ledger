@@ -32,7 +32,7 @@
  *   unchanged and never retried.
  *
  * Unlike the driver's session.withTransaction(), which keeps retrying for up
- * to 120 seconds, this loop is limited by TXN_MAX_ATTEMPTS (default 5).
+ * to 120 seconds, this loop is limited by TXN_MAX_ATTEMPTS (default 10).
  */
 const mongoose = require("mongoose")
 const AppError = require("../utils/AppError")

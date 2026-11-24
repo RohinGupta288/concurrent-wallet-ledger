@@ -7,8 +7,9 @@
  *   1  FAIL - at least one inconsistency was found
  *   2  the check could not run (e.g. database unreachable)
  *
- * Read-only: it never changes data, so unlike the other scripts it may be run
- * against a production database.
+ * Read-only: it never changes data, not even indexes (it connects with
+ * { createIndexes: false }), so unlike the other scripts it may be run against
+ * a production or remote database.
  */
 const { parseArgs } = require("node:util")
 const { reconcile } = require("../src/services/reconciliation.service")
@@ -49,4 +50,4 @@ runScript(async () => {
         printReport(result)
     }
     return result.status === "PASS" ? 0 : 1
-}, { allowProduction: true, errorExitCode: 2 })
+}, { readOnly: true, errorExitCode: 2 })

@@ -127,3 +127,20 @@ describe("ledger model", () => {
         expect(await ledgerModel.countDocuments()).toBe(1)
     })
 })
+
+describe("index creation at startup (ensureIndexes)", () => {
+    test("creates missing schema indexes but never drops an index it does not know", async () => {
+        const { ensureIndexes } = require("../src/config/db")
+        const raw = accountModel.collection
+        const names = async () => (await raw.indexes()).map((i) => i.name)
+        await raw.dropIndex("one_wallet_per_user")
+        await raw.createIndex({ currency: 1 }, { name: "index_from_another_version" })
+        try {
+            await ensureIndexes()
+
+            expect(await names()).toEqual(expect.arrayContaining([ "one_wallet_per_user", "index_from_another_version" ]))
+        } finally {
+            await accountModel.syncIndexes() // back to exactly the schema's indexes
+        }
+    })
+})

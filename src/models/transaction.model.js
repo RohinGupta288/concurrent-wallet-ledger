@@ -62,7 +62,7 @@ const transactionSchema = new mongoose.Schema({
         required: true,
         immutable: true,
     },
-    // sha256 of "fromAccount|toAccount|amount" (see services/ledger.service.js).
+    // sha256 of "type|fromAccount|toAccount|amount" (computeRequestHash in services/ledger.service.js).
     requestHash: {
         type: String,
         required: true,

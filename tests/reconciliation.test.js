@@ -196,6 +196,20 @@ describe("detects corrupted data", () => {
         expect(checksOf(await reconcile())).toEqual([ "INVALID_STATUS" ])
     })
 
+    test("a transaction with an unknown type", async () => {
+        await rawTransactions().updateOne({ _id: transfer._id }, { $set: { type: "REFUND" } })
+        expect(checksOf(await reconcile())).toEqual([ "INVALID_TYPE" ])
+    })
+
+    test("a ledger entry with an unknown type (neither DEBIT nor CREDIT)", async () => {
+        await rawLedger().updateOne({ _id: (await entryOf("DEBIT"))._id }, { $set: { type: "REFUND" } })
+        const result = await reconcile()
+
+        // The bad entry counts for nothing, so its transaction also lacks a DEBIT,
+        // the sender's balance no longer matches and the journal is unbalanced.
+        expect(checksOf(result)).toEqual([ "BALANCE_MISMATCH", "INVALID_TYPE", "MISSING_ENTRY", "UNBALANCED_LEDGER" ])
+    })
+
     test("a second SYSTEM_FUNDING account", async () => {
         await rawAccounts().dropIndex("one_system_funding_account")
         try {
@@ -261,6 +275,21 @@ describe("npm run reconcile (CLI)", () => {
 
         expect(result.status).toBe(0)
         expect(result.stdout).toMatch(/PASS/)
+    })
+
+    test("does not create or drop indexes (read-only includes the schema)", async () => {
+        const indexNames = async () => (await rawAccounts().indexes()).map((i) => i.name).sort()
+        await rawAccounts().dropIndex("one_wallet_per_user")
+        await rawAccounts().createIndex({ currency: 1 }, { name: "index_from_another_version" })
+        try {
+            const before = await indexNames()
+            const result = runCli()
+
+            expect(result.status).toBe(0)
+            expect(await indexNames()).toEqual(before)
+        } finally {
+            await accountModel.syncIndexes() // restore exactly the schema's indexes for later tests
+        }
     })
 
     test("exit code 2 when the check cannot run", () => {

@@ -22,9 +22,13 @@
  *   INVALID_FUNDING                 FUNDING goes from SYSTEM_FUNDING to a wallet
  *   TRANSFER_TOUCHES_SYSTEM         TRANSFER goes from a wallet to a wallet
  *   INVALID_AMOUNT / INVALID_STATUS positive integer amount, status COMPLETED
+ *   INVALID_TYPE                    type is TRANSFER or FUNDING
  * Per ledger entry:
  *   ORPHAN_ENTRY                    its transaction and account exist
  *   INVALID_AMOUNT                  positive integer amount
+ *   INVALID_TYPE                    type is DEBIT or CREDIT (such an entry is
+ *                                   left out of all totals, so its transaction
+ *                                   and account are also reported)
  * Per account:
  *   BALANCE_MISMATCH                stored balance = credits - debits
  *   NEGATIVE_WALLET_BALANCE         a wallet never holds less than 0
@@ -50,12 +54,11 @@ async function readSnapshot() {
     const session = await mongoose.startSession({ snapshot: true })
     try {
         // The first read fixes the snapshot time; every later read in this
-        // session uses that same time. So it must finish before the others start.
+        // session uses that same time. A session must not be used by two
+        // operations at once, so the reads run one after another.
         const accounts = await accountModel.find().session(session).lean()
-        const [ transactions, entries ] = await Promise.all([
-            transactionModel.find().session(session).lean(),
-            ledgerModel.find().session(session).lean(),
-        ])
+        const transactions = await transactionModel.find().session(session).lean()
+        const entries = await ledgerModel.find().session(session).lean()
         return { accounts, transactions, entries }
     } finally {
         await session.endSession()
@@ -81,6 +84,10 @@ async function reconcile() {
         const accountId = String(entry.account)
         const transactionId = String(entry.transaction)
 
+        if (entry.type !== "DEBIT" && entry.type !== "CREDIT") {
+            report("INVALID_TYPE", `Ledger entry has type ${JSON.stringify(entry.type)}, expected DEBIT or CREDIT`, { entryId, transactionId })
+            continue
+        }
         if (!isPositiveInteger(entry.amount)) {
             report("INVALID_AMOUNT", `Ledger entry has invalid amount ${JSON.stringify(entry.amount)}`, { entryId })
             continue
@@ -124,8 +131,12 @@ async function reconcile() {
             if ((from && from.type !== "SYSTEM_FUNDING") || (to && to.type !== "WALLET")) {
                 report("INVALID_FUNDING", "FUNDING must move money from SYSTEM_FUNDING to a wallet", ids)
             }
-        } else if (from && to && (from.type !== "WALLET" || to.type !== "WALLET")) {
-            report("TRANSFER_TOUCHES_SYSTEM", "TRANSFER must move money between two wallets", ids)
+        } else if (transaction.type === "TRANSFER") {
+            if (from && to && (from.type !== "WALLET" || to.type !== "WALLET")) {
+                report("TRANSFER_TOUCHES_SYSTEM", "TRANSFER must move money between two wallets", ids)
+            }
+        } else {
+            report("INVALID_TYPE", `Transaction has type ${JSON.stringify(transaction.type)}, expected TRANSFER or FUNDING`, ids)
         }
 
         const own = entriesByTransaction.get(transactionId) || []

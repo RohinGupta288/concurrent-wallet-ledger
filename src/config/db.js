@@ -8,29 +8,56 @@
 const mongoose = require("mongoose")
 const logger = require("../utils/logger")
 
-// Load every model so syncIndexes() below knows about all of them.
+// Load every model so ensureIndexes() below knows about all of them.
 require("../models/user.model")
 require("../models/account.model")
 require("../models/transaction.model")
 require("../models/ledger.model")
 require("../models/blackList.model")
 
-async function connectToDB(uri) {
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 })
+/**
+ * Creates every index declared in the schemas that is missing. The unique
+ * indexes are business rules (one wallet per user, one use per idempotency
+ * key...), so they must exist before the first request is served.
+ *
+ * It never DROPS an index. (Mongoose's syncIndexes() would drop any index the
+ * running code does not declare, e.g. one created by a newer version of the app
+ * during a rolling deploy.)
+ */
+async function ensureIndexes() {
+    for (const model of Object.values(mongoose.models)) {
+        await model.createIndexes()
+    }
+}
+
+/**
+ * Connects and checks that the server is a replica set.
+ * `{ createIndexes: false }` is for read-only tools (npm run reconcile), which
+ * must not change the database at all, not even its indexes.
+ */
+async function connectToDB(uri, { createIndexes = true } = {}) {
+    await mongoose.connect(uri, {
+        serverSelectionTimeoutMS: 10000,
+        // Indexes are created explicitly below (or not at all), never implicitly.
+        autoIndex: false,
+        // Hand the driver Node's own `os` module. Otherwise the driver loads it
+        // with a dynamic import(), which Jest's test sandbox rejects, and the
+        // connection handshake then fails. Behaviour is identical otherwise.
+        runtimeAdapters: { os: require("os") },
+    })
 
     const hello = await mongoose.connection.db.admin().command({ hello: 1 })
     if (!hello.setName) {
         await mongoose.disconnect()
         throw new Error(
             "MongoDB is running as a standalone server, but this app needs a replica set " +
-            "for multi-document transactions. See README.md > 'MongoDB setup'."
+            "for multi-document transactions. See README.md, section 8."
         )
     }
 
-    // Make the database's indexes match the schemas. The unique indexes are
-    // business rules (one wallet per user, one idempotency key per user...), so
-    // they must exist before the first request is served.
-    await mongoose.connection.syncIndexes()
+    if (createIndexes) {
+        await ensureIndexes()
+    }
 
     logger.info("db.connected", { database: mongoose.connection.name, replicaSet: hello.setName })
 }
@@ -54,4 +81,4 @@ async function checkDBHealth() {
     }
 }
 
-module.exports = { connectToDB, disconnectFromDB, checkDBHealth }
+module.exports = { connectToDB, disconnectFromDB, checkDBHealth, ensureIndexes }
