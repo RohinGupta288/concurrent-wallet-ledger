@@ -167,7 +167,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M5 | ✅ Done | 174 tests pass (transfer 29, idempotency 14 incl. both uncertain-commit cases, retry loop 8 incl. a real WriteConflict); mutation check (debit outside session) caught by the atomicity test; manual HTTP run against dev DB |
 | M6 | ✅ Done | 184 tests pass; concurrency suite (10 scenarios, DB invariants after each) passed 9/9 repeated runs; removing the balance guards makes the 3 double-spend tests fail; reconcile PASS assertion added to the invariant helper in M8 |
 | M7 | ✅ Done | 202 tests pass (18 history: ordering, page boundaries, per-user visibility, no PII, detail 404s); explain() shows SORT_MERGE over both history indexes (no collection scan, no in-memory sort) |
-| M8 | ⬜ | |
+| M8 | ✅ Done | 226 tests pass (23 reconciliation: 15 corruption kinds detected, read-only check, CLI exit codes 0/1/2 and --json); reconcile() now asserted PASS inside every expectBooksBalanced() call, incl. all concurrency scenarios, plus 6 audits run during 30 in-flight transfers |
 | M9 | ⬜ | |
 | M10 | ⬜ | |
 | M11 | ⬜ | |

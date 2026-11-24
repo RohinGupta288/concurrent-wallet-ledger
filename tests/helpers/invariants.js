@@ -11,10 +11,13 @@
  *   3. Every account's stored balance = its credits - its debits.
  *   4. The sum of all balances is 0 (money is only moved, never created).
  *   5. No wallet balance is negative.
+ * and finally that the app's own reconciliation (npm run reconcile) reports
+ * PASS for the same data.
  */
 const accountModel = require("../../src/models/account.model")
 const transactionModel = require("../../src/models/transaction.model")
 const ledgerModel = require("../../src/models/ledger.model")
+const { reconcile } = require("../../src/services/reconciliation.service")
 
 async function expectBooksBalanced() {
     const [ accounts, transactionCount, entries ] = await Promise.all([
@@ -43,6 +46,11 @@ async function expectBooksBalanced() {
         sumOfBalances += account.balance
     }
     expect(sumOfBalances).toBe(0)
+
+    const reconciliation = await reconcile()
+    expect(reconciliation.inconsistencies).toEqual([])
+    expect(reconciliation.status).toBe("PASS")
+    expect(reconciliation.transactionsChecked).toBe(transactionCount)
 
     return { transactionCount, entryCount: entries.length, totalDebit: totals.DEBIT, totalCredit: totals.CREDIT }
 }

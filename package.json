@@ -14,6 +14,7 @@
     "seed": "node scripts/seed.js",
     "fund": "node scripts/fund-wallet.js",
     "wallet:status": "node scripts/set-wallet-status.js",
+    "reconcile": "node scripts/reconcile.js",
     "test": "jest --runInBand"
   },
   "keywords": [],

@@ -9,6 +9,7 @@
 const accountModel = require("../src/models/account.model")
 const transactionModel = require("../src/models/transaction.model")
 const { config } = require("../src/config/env")
+const { reconcile } = require("../src/services/reconciliation.service")
 const { connectTestDB, clearDatabase, closeTestDB } = require("./helpers/db")
 const { registerUserWithWallet } = require("./helpers/auth")
 const { fund, newKey, sendTransfer } = require("./helpers/money")
@@ -168,6 +169,30 @@ describe("concurrent duplicates", () => {
         const winner = responses.find((r) => r.status === 201).body.transaction
         expect(await balanceOf(bob.wallet.id)).toBe(winner.amount)
         expect(await transferCount()).toBe(1)
+        await expectBooksBalanced()
+    })
+})
+
+describe("reconciliation while money is moving", () => {
+    test("reconcile() run during 30 in-flight transfers always sees a consistent snapshot (PASS)", async () => {
+        const users = await Promise.all(Array.from({ length: 4 }, () => registerUserWithWallet()))
+        for (const user of users) await fund(user.wallet.id, 100000)
+
+        const transfers = Array.from({ length: 30 }, (_, i) => {
+            const from = users[ i % 4 ]
+            const to = users[ (i + 1) % 4 ]
+            return sendTransfer(from, { to: to.wallet.id, amount: 100 + i })
+        })
+        const audits = Array.from({ length: 6 }, () => reconcile())
+        const results = await Promise.all([ ...transfers, ...audits ])
+
+        const responses = results.slice(0, 30)
+        const reports = results.slice(30)
+        expect(countStatuses(responses)).toEqual({ 201: 30 })
+        for (const report of reports) {
+            expect(report.inconsistencies).toEqual([])
+            expect(report.status).toBe("PASS")
+        }
         await expectBooksBalanced()
     })
 })
