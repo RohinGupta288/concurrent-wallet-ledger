@@ -14,7 +14,10 @@ async function start() {
     validateConfig()
     await connectToDB(config.mongoUri)
 
-    const server = app.listen(config.port, () => {
+    // Express 5 also calls this callback when listening FAILS, passing the
+    // error; that case is logged by the 'error' handler below.
+    const server = app.listen(config.port, (err) => {
+        if (err) return
         logger.info("server.started", { port: config.port, nodeEnv: config.nodeEnv })
     })
     // e.g. EADDRINUSE when another process already uses the port: fail loudly.
