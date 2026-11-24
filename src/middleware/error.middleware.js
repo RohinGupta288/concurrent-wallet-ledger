@@ -54,13 +54,21 @@ function toAppError(err) {
 function errorHandler(err, req, res, next) {
     const appError = toAppError(err)
 
-    if (appError.statusCode >= 500) {
-        // Unexpected: log full detail server-side only.
+    if (!(err instanceof AppError) && appError.statusCode >= 500) {
+        // Unexpected (a bug or an outage): log full detail server-side only.
         logger.error("http.unhandled_error", {
             requestId: req.id,
             name: err.name,
             message: err.message,
             stack: err.stack,
+        })
+    } else if (appError.statusCode >= 500) {
+        // A deliberate server-side refusal, e.g. 503 TRANSACTION_RETRY_EXHAUSTED
+        // under heavy contention: worth a warning, but it is not a crash.
+        logger.warn("http.server_error_response", {
+            requestId: req.id,
+            status: appError.statusCode,
+            errorCode: appError.code,
         })
     }
 

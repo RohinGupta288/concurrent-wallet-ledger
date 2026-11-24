@@ -15,6 +15,7 @@
     "fund": "node scripts/fund-wallet.js",
     "wallet:status": "node scripts/set-wallet-status.js",
     "reconcile": "node scripts/reconcile.js",
+    "perf": "node scripts/perf.js",
     "test": "jest --runInBand"
   },
   "keywords": [],

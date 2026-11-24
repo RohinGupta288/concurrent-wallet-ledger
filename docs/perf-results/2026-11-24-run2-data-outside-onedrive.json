@@ -1,0 +1,84 @@
+{
+  "runId": "47a1786f",
+  "environment": {
+    "date": "2026-11-24T09:58:10.298Z",
+    "os": "Windows_NT 10.0.26300 (win32 x64)",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-1260P, 16 logical cores",
+    "memoryGB": 15.7,
+    "freeMemoryGB": 2.4,
+    "node": "v22.23.5",
+    "mongodb": "8.0.32",
+    "serverLogLevel": "warn",
+    "txnMaxAttempts": 10
+  },
+  "settings": {
+    "connections": 10,
+    "durationSeconds": 10,
+    "warmupSeconds": 2,
+    "users": 20
+  },
+  "results": [
+    {
+      "scenario": "GET balance (own wallet)",
+      "connections": 10,
+      "durationSeconds": 10,
+      "requests": 961,
+      "throughputRps": 96.1,
+      "avgLatencyMs": 104.03,
+      "p50LatencyMs": 80.17,
+      "p95LatencyMs": 258.27,
+      "p99LatencyMs": 306.99,
+      "maxLatencyMs": 473.41,
+      "statusCodes": {
+        "200": 961
+      },
+      "connectionErrors": 0,
+      "timeouts": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "scenario": "POST transfer, 10 disjoint wallet pairs",
+      "connections": 10,
+      "durationSeconds": 10,
+      "requests": 409,
+      "throughputRps": 40.9,
+      "avgLatencyMs": 246.17,
+      "p50LatencyMs": 180.88,
+      "p95LatencyMs": 523.08,
+      "p99LatencyMs": 802.39,
+      "maxLatencyMs": 1122.1,
+      "statusCodes": {
+        "201": 409
+      },
+      "connectionErrors": 0,
+      "timeouts": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "scenario": "POST transfer, one hot sender wallet",
+      "connections": 10,
+      "durationSeconds": 10,
+      "requests": 139,
+      "throughputRps": 13.9,
+      "avgLatencyMs": 630.99,
+      "p50LatencyMs": 203.72,
+      "p95LatencyMs": 2672.5,
+      "p99LatencyMs": 4787.73,
+      "maxLatencyMs": 4980.2,
+      "statusCodes": {
+        "201": 139
+      },
+      "connectionErrors": 0,
+      "timeouts": 0,
+      "errorRatePercent": 0
+    }
+  ],
+  "correctness": {
+    "transfersAcknowledged201": 651,
+    "transfersStored": 690,
+    "storedButCutOffAtPhaseEnd": 39,
+    "maxPossibleCutOff": 40,
+    "reconciliation": "PASS",
+    "inconsistencyCount": 0
+  }
+}

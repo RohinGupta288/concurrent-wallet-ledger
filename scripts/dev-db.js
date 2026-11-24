@@ -17,7 +17,9 @@ const { MongoBinary } = require("mongodb-memory-server")
 
 const PORT = Number(process.env.DEV_DB_PORT || 27017)
 const REPLICA_SET = "rs0"
-const ROOT = path.join(__dirname, "..", ".data")
+// DEV_DB_DIR moves the data folder, e.g. out of a OneDrive/Dropbox-synced
+// project folder: sync clients may lock or upload a live database's files.
+const ROOT = process.env.DEV_DB_DIR ? path.resolve(process.env.DEV_DB_DIR) : path.join(__dirname, "..", ".data")
 const DATA_DIR = path.join(ROOT, "mongodb")
 const LOG_FILE = path.join(ROOT, "mongod.log")
 

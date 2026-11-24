@@ -170,6 +170,36 @@ describe("unexpected errors", () => {
         expect(requestLogs()[ 0 ]).toMatchObject({ status: 500, errorCode: "INTERNAL_ERROR" })
     })
 
+    test("a deliberate 503 (retries exhausted) is a warning with its code, not a crash with a stack", async () => {
+        const alice = await registerUserWithWallet()
+        const bob = await registerUserWithWallet()
+        await fund(alice.wallet.id, 10000)
+        const mongoose = require("mongoose")
+        jest.spyOn(mongoose.mongo.ClientSession.prototype, "commitTransaction").mockImplementation(() => {
+            const err = new Error("simulated")
+            err.errorLabels = [ "TransientTransactionError" ]
+            return Promise.reject(err)
+        })
+        const { config } = require("../src/config/env")
+        const saved = config.txnMaxAttempts
+        config.txnMaxAttempts = 1
+        lines = []
+        try {
+            const res = await sendTransfer(alice, { to: bob.wallet.id, amount: 100 })
+            await settle()
+            expect(res.status).toBe(503)
+
+            const logs = parsed()
+            expect(logs.some((l) => l.event === "http.unhandled_error")).toBe(false)
+            expect(logs.find((l) => l.event === "http.server_error_response")).toMatchObject({
+                level: "warn", status: 503, errorCode: "TRANSACTION_RETRY_EXHAUSTED", requestId: res.headers[ "x-request-id" ],
+            })
+            expect(JSON.stringify(logs)).not.toContain("stack")
+        } finally {
+            config.txnMaxAttempts = saved
+        }
+    })
+
     test("client errors (4xx) are not logged as server errors", async () => {
         await request(app).get("/api/accounts").expect(401)
         await settle()
