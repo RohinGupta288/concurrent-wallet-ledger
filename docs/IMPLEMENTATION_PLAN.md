@@ -1,6 +1,6 @@
 # Implementation Plan: Concurrent-Safe Digital Wallet & Double-Entry Ledger
 
-Companion to [AUDIT.md](AUDIT.md). This plan was approved on 2026-11-24 with the adjustments listed in §6.
+Companion to [AUDIT.md](AUDIT.md). Plan dated 2026-11-24, including the adjustments listed in §6.
 
 **Priority order:** Correctness → Security → Simplicity → Testability → Maintainability → Performance.
 
@@ -118,11 +118,11 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 - 500: unexpected; stack traces are never sent to clients
 - 503: retry exhausted or DB down
 
-## 6. Approved adjustments (review of 2026-11-24)
+## 6. Design adjustments (2026-11-24)
 
 1. Full engineering depth is kept: concurrency, idempotency, double entry, reconciliation, security, tests, CI, and performance testing.
 2. Add `docs/START_HERE.md`: a concise guide following one transfer end to end, the 10–15 key files and functions, and a two-day sequence. `LEARNING_GUIDE.md` stays as the full reference.
-3. Four review stages; work stops for review at each boundary or on a significant blocker.
+3. The work is grouped into four phases, each ending with a verification checkpoint.
 4. Node/MongoDB compatibility is verified. Transaction retries are bounded. Duplicates stay safe after uncertain commits. Concurrency tests assert database invariants.
 5. The reason the system funding account may go negative is documented (§3), and reconciliation checks it explicitly.
 6. Beginner-friendly code: plain functions, a single `AppError` class, no new runtime dependencies.
@@ -132,7 +132,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 
 | Stage | # | Milestone | Depends on | Verification |
 |---|---|---|---|---|
-| **1 Foundation** | M0 | AUDIT.md + IMPLEMENTATION_PLAN.md | – | Files exist and match the approved plan |
+| **1 Foundation** | M0 | AUDIT.md + IMPLEMENTATION_PLAN.md | – | Files exist and match this plan |
 | | M1 | Foundation: deps, env config, DB connect + replica-set check, server/app split, AppError, error + 404 handler, JSON logger, request IDs, `/health`, `.env.example`, `.gitignore`, Jest harness, `scripts/dev-db.js`; remove the email service | M0 | `npm test` (health/error/config tests); `npm run db:dev` + `npm start` + `GET /health` → 200 |
 | | M2 | Auth: validators, user model fixes, register/login/logout/me, Bearer-only middleware, hashed blacklist; remove system-user funding endpoint | M1 | `tests/auth.test.js` |
 | **2 Core wallet & transfers** | M3 | Account/transaction/ledger models, `money.js`, wallet endpoints | M2 | `tests/wallet.test.js`, `tests/money.test.js` |
@@ -142,7 +142,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | | M7 | History list + detail with pagination | M5 | `tests/history.test.js` |
 | **3 Reliability & tooling** | M8 | Reconciliation service + CLI | M5 | `tests/reconciliation.test.js` with intentionally corrupted data; exit codes |
 | | M9 | Observability polish | M5 | `tests/observability.test.js`: request IDs, no stack in production, no secrets in logs |
-| | M10 | GitHub Actions CI | M6 | Workflow file reviewed; status unverified until pushed to the user's own repo |
+| | M10 | GitHub Actions CI | M6 | Workflow file reviewed; status unverified until the workflow runs on GitHub |
 | | M11 | Performance test script + measured results | M8 | Actual numbers recorded |
 | **4 Docs & final** | M12 | README, START_HERE, LEARNING_GUIDE, ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md | M11 | Each documented command executed |
 | | M13 | Final audit + requirement matrix | all | Full suite green, reconcile PASS, no TODO/stub |
@@ -172,4 +172,4 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M10 | ✅ Done locally, ⚠️ unverified on GitHub | Workflow parsed with js-yaml; CI simulated from a clean `git archive HEAD` export outside OneDrive with no .env: `npm ci` (MongoDB binary landed in MONGOMS_DOWNLOAD_DIR, the cached path) + `npm test` -> 236/236 in 96 s. Simulation ran on Windows; the workflow runs on ubuntu-24.04, so it stays unverified until pushed to a repo you own |
 | M11 | ✅ Done | `npm run perf` run 3 times (10 connections x 10 s per scenario); real results and conditions in docs/PERFORMANCE.md + raw JSON in docs/perf-results/; correctness check and reconcile PASS after every run; 237 tests pass |
 | M12 | ✅ Done | README (17 sections, PowerShell), START_HERE, LEARNING_GUIDE (6 parts, 20 Q&A, exercises), ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md. Setup verified from a fresh `git archive` export (`npm ci`, `.env` commands, placeholder-secret refusal, `npm start`, `/health`); every README §13 request, seed/fund/freeze scripts, reconcile and perf executed. Not executed: winget installs, MongoDB service setup (Option B), Postman UI |
-| M13 | ✅ Done | Independent read-only review: no critical/high findings; medium (index drops via syncIndexes, also from reconcile) and low findings fixed with tests; runtime `npm audit` 0 vulnerabilities after in-range updates; Express 5 listen-callback log fixed; benchmark 503s confirmed as WriteConflict retry exhaustion with nothing stored (run 4); requirement matrix in TEST_REPORT.md; no TODO/stub; CI still unverified on GitHub |
+| M13 | ✅ Done | Code review: no critical/high findings; medium (index drops via syncIndexes, also from reconcile) and low findings fixed with tests; runtime `npm audit` 0 vulnerabilities after in-range updates; Express 5 listen-callback log fixed; benchmark 503s confirmed as WriteConflict retry exhaustion with nothing stored (run 4); requirement matrix in TEST_REPORT.md; no TODO/stub; CI still unverified on GitHub |

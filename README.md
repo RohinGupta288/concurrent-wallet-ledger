@@ -577,7 +577,7 @@ They describe that machine, not a capacity figure.
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmark method and measured results |
 | [docs/AUDIT.md](docs/AUDIT.md) | Defects found in the original code |
 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Milestones and progress |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Conventions for changing the code |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Conventions for changing the code: money-correctness rules, testing, git |
 
 ## Attribution and license
 

@@ -10,8 +10,9 @@ integer paise. It is a simple monolith; keep it that way (no Redis, queues,
 microservices, extra layers or new runtime dependencies without a clear
 need). It isn't production-ready, and docs must never claim it is.
 
-Reference docs: `docs/ARCHITECTURE.md` (how it works, which must match the
-code), `docs/TEST_REPORT.md` (what is verified).
+Reference docs: `docs/ARCHITECTURE.md` (how it works), `docs/START_HERE.md`
+and `docs/LEARNING_GUIDE.md` (learning material, which must match the code),
+`docs/TEST_REPORT.md` (what is verified).
 
 ## Commands (Windows PowerShell)
 
@@ -80,7 +81,7 @@ slow on battery power). Run it after every change that touches `src/`.
   counts as verified only once it has run on GitHub.
 * Never invent performance numbers. `docs/PERFORMANCE.md` holds measured
   runs with their raw JSON in `docs/perf-results/`.
-* Keep `docs/ARCHITECTURE.md` and `docs/TEST_REPORT.md` in sync with the code.
+* Keep `docs/TEST_REPORT.md` and the learning docs in sync with the code.
 
 ## Git
 

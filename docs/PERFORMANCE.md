@@ -32,8 +32,8 @@ AC power and mostly idle.
    - `reconcile()` must PASS.
 
    It exits 1 if any check fails. Runs 1–3 used an earlier, weaker check that
-   compared only totals (stored − acknowledged between 0 and 40). An
-   independent review pointed out that totals can hide a few lost transfers
+   compared only totals (stored − acknowledged between 0 and 40). A code
+   review pointed out that totals can hide a few lost transfers
    behind cut-off ones, so the check was replaced. Runs 1–3 still passed
    reconciliation, which would have caught any money created or lost.
 

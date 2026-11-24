@@ -1,6 +1,6 @@
 # Test report
 
-Status of verification at the end of Stage 4 (2026-11-24), on branch
+Status of verification after milestone M13 (2026-11-24), on branch
 `feature/wallet-ledger`. This report separates what was **executed and
 observed** from what is only implemented or claimed. Nothing here is
 inferred from "the tests pass" alone.
@@ -12,7 +12,7 @@ inferred from "the tests pass" alone.
 | README API walkthrough | Every request in README §13 executed against that server; every status code and error code as documented |
 | Reconciliation (dev DB) | **PASS**: 85 wallets, 4,693 transactions, 9,386 ledger entries, debit = credit = 801,904,878 paise, 0 inconsistencies |
 | Benchmark | 4 runs recorded (`docs/PERFORMANCE.md`); run 4 checked key by key: 0 acknowledged transfers missing, 0 of the 503s stored, reconcile PASS |
-| Independent code review | Done by a separate read-only reviewer; no critical or high findings; medium and low findings fixed (see "Audit") |
+| Code review | Separate read-only review pass over the whole codebase; no critical or high findings; medium and low findings fixed (see "Audit") |
 | GitHub Actions | Workflow reviewed and parsed; CI simulated locally. **Not run on GitHub: unverified** |
 | Production readiness | **Not claimed.** Educational, simulated-money project |
 
@@ -32,7 +32,7 @@ inferred from "the tests pass" alone.
 |---|---|
 | `npm test` (`jest --runInBand`), final run | 251/251 passed, Jest exit 0, 112 s |
 | `npm test`, after the audit fixes (commit 9134269) | 251/251 passed, exit 0, 79 s |
-| `npm test`, end of Stage 3 (commit 5010f4f) | 237/237 passed, exit 0, 49 s |
+| `npm test`, after M11 (commit 5010f4f) | 237/237 passed, exit 0, 49 s |
 | `git archive` → `npm ci` (fresh copy outside OneDrive) | exit 0 in 1 min 53 s; `npm audit --omit=dev`: 0 vulnerabilities |
 | `node src/server.js` with the `.env.example` placeholder secret | refused: `JWT_SECRET still has the placeholder value…`, exit 1 |
 | README §7 secret generation + replacement commands | `.env` updated, 96-character secret |
@@ -80,7 +80,7 @@ transaction and ledger counts, Σ debits = Σ credits, Σ balances = 0, and that
 ### Tests that failed
 
 * **Final run:** 0 failed.
-* **During Stage 4:** after `npm audit fix` upgraded the MongoDB driver to
+* **During M13:** after `npm audit fix` upgraded the MongoDB driver to
   7.9.1, every database test failed with `MongooseServerSelectionError:
   Missing required sub-document 'driver' in the client metadata document`
   (80 of 86 in the affected files). Cause: driver 7.9 loads Node's `os` module
@@ -88,7 +88,7 @@ transaction and ledger counts, Σ debits = Σ credits, Σ balances = 0, and that
   handshake metadata was empty. The app outside Jest was unaffected
   (`npm run reconcile` worked). Fix: `connectToDB` passes the driver's
   documented `runtimeAdapters: { os }` option. All tests passed afterwards.
-* **Stage 3 (history):** on battery power, one full run had 4 timing
+* **During M8–M11:** on battery power, one full run had 4 timing
   failures (spawned scripts and heavy-contention tests hitting timeouts or
   503s); the money invariants held. The tests were hardened in commit 79f84db
   without weakening any invariant.
@@ -97,13 +97,13 @@ transaction and ledger counts, Σ debits = Σ credits, Σ balances = 0, and that
 
 | Mutation | Result |
 |---|---|
-| Remove both balance guards (`$gte` filter and the funds check) | the 3 double-spend tests fail (Stage 2) |
-| Debit `updateOne` without `{ session }` | the "failure AFTER the source was debited" atomicity test fails (Stage 2) |
-| Make the idempotency index non-unique (Stage 4) | **only** the model test for the unique index fails. Concurrent duplicate transfers are *also* serialized by the write conflict on the shared source wallet, so the index is defence in depth, not the only guard. Documented in LEARNING_GUIDE exercise 5.3.3 |
+| Remove both balance guards (`$gte` filter and the funds check) | the 3 double-spend tests fail (M6) |
+| Debit `updateOne` without `{ session }` | the "failure AFTER the source was debited" atomicity test fails (M5) |
+| Make the idempotency index non-unique (M13) | **only** the model test for the unique index fails. Concurrent duplicate transfers are *also* serialized by the write conflict on the shared source wallet, so the index is defence in depth, not the only guard. Documented in LEARNING_GUIDE exercise 5.3.3 |
 
 ## 4. Audit
 
-An independent, read-only reviewer re-examined the code without relying on
+A separate read-only review pass re-examined the code without relying on
 the test results. It checked: ownership and authorization; atomicity;
 overdraft prevention; idempotency under concurrent duplicates; uncertain
 commits; bounded retries; reconciliation; authentication; error handling and
@@ -132,7 +132,7 @@ emails; inputs are type-checked; stacks are never sent to clients.
 | Concurrent reads on one snapshot session (plausible) | Changed to sequential reads |
 | `fundWallet` has no duplicate-key fallback; a frozen SYSTEM_FUNDING account would report `INSUFFICIENT_FUNDS`; an unlabelled commit error gives 500 although the commit may have applied (info) | Not changed: practically unreachable (there's no way to freeze the system account; a same-key retry still replays). Listed here |
 
-**Benchmark 503s:** the reviewer traced them to `runInTransaction` running
+**Benchmark 503s:** the review traced them to `runInTransaction` running
 out of attempts on `WriteConflict` (transaction aborted, nothing applied). The
 run-4 server log confirms it: 4 × `txn.retry_exhausted`, all `reason:
 "WriteConflict"`, none `txn.commit_outcome_unknown`. The key-by-key check
@@ -140,7 +140,7 @@ found 0 of the 503 keys stored. **Conclusion: safe retry-exhaustion
 responses, not hidden bugs.** They cost availability under extreme
 single-wallet contention (0.47–2.13% of requests in that scenario).
 
-Found during the Stage 4 verification itself: Express 5 calls the `listen`
+Found during the final verification itself: Express 5 calls the `listen`
 callback on failure too, so a port conflict logged `server.started` before
 `server.listen_failed`. Fixed in 0fc167c and verified manually.
 
@@ -174,7 +174,7 @@ been run here.
 | Docs | README (17 sections, PowerShell), START_HERE, LEARNING_GUIDE (6 parts, 20 Q&A), ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md | VERIFIED (content) | commands in README §7, §9–16 executed; see exceptions below |
 | Docs | README §6 winget installs, §8 Option B (MongoDB service + `rs.initiate`) | **IMPLEMENTED BUT UNVERIFIED** | package ids checked with `winget show`; installs not executed |
 | Docs | LEARNING_GUIDE §5.1 Postman walkthrough | **IMPLEMENTED BUT UNVERIFIED** | equivalent PowerShell requests verified; Postman itself not used |
-| Ops | Graceful shutdown on Ctrl+C (SIGINT) | **IMPLEMENTED BUT UNVERIFIED** in Stage 4 | code reviewed; a Windows Ctrl+C was not sent to the server in this stage |
+| Ops | Graceful shutdown on Ctrl+C (SIGINT) | **IMPLEMENTED BUT UNVERIFIED** | code reviewed; a Windows Ctrl+C was not sent to the server during final verification |
 | Scope | No frontend, microservices, Kafka, Redis, Docker, gateways, e-mail, admin UI | VERIFIED | dependency list; code layout |
 
 Nothing is NOT IMPLEMENTED or BLOCKED.
