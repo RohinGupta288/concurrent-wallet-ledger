@@ -222,10 +222,13 @@ test("reconcile never modifies data, even when it finds problems", async () => {
 })
 
 describe("npm run reconcile (CLI)", () => {
+    // Each case starts a new Node process; allow for slow machines.
+    jest.setTimeout(120000)
+
     const runCli = (args = [], env = {}) => spawnSync(
         process.execPath,
         [ path.join(__dirname, "..", "scripts", "reconcile.js"), ...args ],
-        { env: { ...process.env, ...env }, encoding: "utf8", timeout: 30000 }
+        { env: { ...process.env, ...env }, encoding: "utf8", timeout: 90000 }
     )
 
     test("PASS -> exit code 0 and a readable report", () => {

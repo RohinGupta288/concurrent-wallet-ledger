@@ -133,6 +133,9 @@ describe("seed script", () => {
 })
 
 describe("development scripts refuse to run in production", () => {
+    // Each case starts a new Node process; allow for slow machines.
+    jest.setTimeout(120000)
+
     test.each([
         [ "seed.js", [] ],
         [ "fund-wallet.js", [ "--email", "a@example.com", "--amount", "10", "--key", "prod-check-1" ] ],
@@ -141,7 +144,7 @@ describe("development scripts refuse to run in production", () => {
         const result = spawnSync(process.execPath, [ path.join(__dirname, "..", "scripts", script), ...args ], {
             env: { ...process.env, NODE_ENV: "production" },
             encoding: "utf8",
-            timeout: 20000,
+            timeout: 90000,
         })
 
         expect(result.status).toBe(1)

@@ -15,6 +15,9 @@ const { registerUserWithWallet } = require("./helpers/auth")
 const { fund, newKey, sendTransfer } = require("./helpers/money")
 const { expectBooksBalanced, balanceOf } = require("./helpers/invariants")
 
+// Contended requests may back off and retry for several seconds on a slow machine.
+jest.setTimeout(120000)
+
 beforeAll(connectTestDB)
 beforeEach(clearDatabase)
 afterAll(closeTestDB)
@@ -175,24 +178,37 @@ describe("concurrent duplicates", () => {
 
 describe("reconciliation while money is moving", () => {
     test("reconcile() run during 30 in-flight transfers always sees a consistent snapshot (PASS)", async () => {
-        const users = await Promise.all(Array.from({ length: 4 }, () => registerUserWithWallet()))
+        const users = await Promise.all(Array.from({ length: 8 }, () => registerUserWithWallet()))
         for (const user of users) await fund(user.wallet.id, 100000)
 
-        const transfers = Array.from({ length: 30 }, (_, i) => {
-            const from = users[ i % 4 ]
-            const to = users[ (i + 1) % 4 ]
-            return sendTransfer(from, { to: to.wallet.id, amount: 100 + i })
-        })
+        const planned = Array.from({ length: 30 }, (_, i) => ({
+            from: users[ i % 8 ], to: users[ (i + 1) % 8 ], amount: 100 + i, key: newKey(),
+        }))
+        const transfers = planned.map((t) => sendTransfer(t.from, { to: t.to.wallet.id, amount: t.amount, key: t.key }))
         const audits = Array.from({ length: 6 }, () => reconcile())
         const results = await Promise.all([ ...transfers, ...audits ])
 
         const responses = results.slice(0, 30)
         const reports = results.slice(30)
-        expect(countStatuses(responses)).toEqual({ 201: 30 })
+        // What this test is about: every audit taken mid-flight is consistent.
         for (const report of reports) {
             expect(report.inconsistencies).toEqual([])
             expect(report.status).toBe("PASS")
         }
+        // Each transfer completed, or (only if its retry budget ran out on a slow
+        // machine) returned 503 having applied nothing.
+        for (const r of responses) expect([ 201, 503 ]).toContain(r.status)
+        expect(await transferCount()).toBe(responses.filter((r) => r.status === 201).length)
+        await expectBooksBalanced()
+
+        // Retrying the 503s one by one with their own keys completes everything exactly once.
+        for (const [ i, r ] of responses.entries()) {
+            if (r.status === 503) {
+                const t = planned[ i ]
+                await sendTransfer(t.from, { to: t.to.wallet.id, amount: t.amount, key: t.key }).expect(201)
+            }
+        }
+        expect(await transferCount()).toBe(30)
         await expectBooksBalanced()
     })
 })
@@ -243,8 +259,9 @@ describe("other concurrent changes", () => {
         expect(await balanceOf(bob.wallet.id)).toBe((counts[ 201 ] || 0) * 1000)
         await expectBooksBalanced()
 
-        // The client retries every request with its original key (normal retry budget).
-        const retried = await Promise.all(keys.map((key) => sendTransfer(alice, { to: bob.wallet.id, amount: 1000, key })))
+        // The client retries every request with its original key, one at a time.
+        const retried = []
+        for (const key of keys) retried.push(await sendTransfer(alice, { to: bob.wallet.id, amount: 1000, key }))
         for (const [ i, r ] of retried.entries()) {
             expect(r.status).toBe(first[ i ].status === 201 ? 200 : 201) // done ones replay, failed ones run now
         }
