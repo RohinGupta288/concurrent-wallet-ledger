@@ -99,7 +99,7 @@ transaction and ledger counts, Σ debits = Σ credits, Σ balances = 0, and that
 |---|---|
 | Remove both balance guards (`$gte` filter and the funds check) | the 3 double-spend tests fail (M6) |
 | Debit `updateOne` without `{ session }` | the "failure AFTER the source was debited" atomicity test fails (M5) |
-| Make the idempotency index non-unique (M13) | **only** the model test for the unique index fails. Concurrent duplicate transfers are *also* serialized by the write conflict on the shared source wallet, so the index is defence in depth, not the only guard. Documented in LEARNING_GUIDE exercise 5.3.3 |
+| Make the idempotency index non-unique (M13) | **only** the model test for the unique index fails. Concurrent duplicate transfers are *also* serialized by the write conflict on the shared source wallet, so the index is defence in depth, not the only guard. |
 
 ## 4. Audit
 
@@ -171,9 +171,8 @@ been run here.
 | J | Jest + Supertest on a real replica set, all required categories, deterministic, DB state verified, `npm test` works | VERIFIED | 251 tests; §3 |
 | K | GitHub Actions: checkout, Node from `.nvmrc`, `npm ci`, replica-set-capable MongoDB, `npm test`, fails on failure, no secrets needed | **IMPLEMENTED BUT UNVERIFIED** | workflow parsed; simulated locally on Windows (`npm ci` + `npm test` on a clean export with no `.env`); has never run on GitHub |
 | L | Bounded, reproducible perf test with throughput, avg, p95, error rate; real results and conditions | VERIFIED | docs/PERFORMANCE.md; 4 runs with raw JSON |
-| Docs | README (17 sections, PowerShell), START_HERE, LEARNING_GUIDE (6 parts, 20 Q&A), ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md | VERIFIED (content) | commands in README §7, §9–16 executed; see exceptions below |
+| Docs | README, ARCHITECTURE, TEST_REPORT, PERFORMANCE, CONTRIBUTING.md | VERIFIED (content) | commands in README §7, §9–16 executed; see exceptions below |
 | Docs | README §6 winget installs, §8 Option B (MongoDB service + `rs.initiate`) | **IMPLEMENTED BUT UNVERIFIED** | package ids checked with `winget show`; installs not executed |
-| Docs | LEARNING_GUIDE §5.1 Postman walkthrough | **IMPLEMENTED BUT UNVERIFIED** | equivalent PowerShell requests verified; Postman itself not used |
 | Ops | Graceful shutdown on Ctrl+C (SIGINT) | **IMPLEMENTED BUT UNVERIFIED** | code reviewed; a Windows Ctrl+C was not sent to the server during final verification |
 | Scope | No frontend, microservices, Kafka, Redis, Docker, gateways, e-mail, admin UI | VERIFIED | dependency list; code layout |
 

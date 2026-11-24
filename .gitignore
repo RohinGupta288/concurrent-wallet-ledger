@@ -16,3 +16,6 @@ npm-debug.log*
 
 # Personal editor settings
 /.vscode/
+
+# Personal study notes (kept out of the repository)
+/study/

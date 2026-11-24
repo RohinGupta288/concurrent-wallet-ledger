@@ -1,359 +1,256 @@
-# Concurrent-Safe Digital Wallet & Double-Entry Ledger
+# Concurrent Wallet Ledger
 
-An educational backend for a **simulated** INR wallet: users register, open
-one wallet, and send money to other wallets. Every movement is recorded with
-double-entry bookkeeping inside a MongoDB transaction. Concurrent requests
-cannot overspend a wallet, retries cannot apply a payment twice, and a
-reconciliation tool proves that the books balance.
+A backend for a simple digital wallet, written in Node.js, Express and MongoDB.
+Users sign up, open a wallet in INR and send money to each other. The part I
+cared about most is correctness: transfers are atomic, two requests at the same
+time cannot overspend a wallet, a retried request never pays twice, and every
+rupee can be traced through a double-entry ledger.
 
-> **No real money.** There are no payment gateways or bank integrations.
-> Money enters only through a development script. This is a portfolio and
-> learning project, **not a production payment system** (see
-> [Known limitations](#17-known-limitations)).
+The money is simulated. There is no payment gateway or bank behind it, and it
+is not meant for production use.
 
-New to Node.js or MongoDB? Start with **[docs/START_HERE.md](docs/START_HERE.md)**.
+## Why I built this
 
-Contents:
-
-1. [Project overview](#1-project-overview)
-2. [Problem being solved](#2-problem-being-solved)
-3. [Technology stack](#3-technology-stack)
-4. [Architecture diagram](#4-architecture-diagram)
-5. [Main features](#5-main-features)
-6. [Setup prerequisites](#6-setup-prerequisites)
-7. [Windows PowerShell setup](#7-windows-powershell-setup)
-8. [MongoDB installation and configuration](#8-mongodb-installation-and-configuration)
-9. [Environment variables](#9-environment-variables)
-10. [Starting the backend](#10-starting-the-backend)
-11. [Seeding simulated wallets](#11-seeding-simulated-wallets)
-12. [API endpoint reference](#12-api-endpoint-reference)
-13. [Example API requests and responses](#13-example-api-requests-and-responses)
-14. [Running tests](#14-running-tests)
-15. [Running reconciliation](#15-running-reconciliation)
-16. [Running the performance test](#16-running-the-performance-test)
-17. [Known limitations](#17-known-limitations)
-
-Also: [Documentation map](#documentation-map) · [Attribution and license](#attribution-and-license)
-
----
-
-## 1. Project overview
-
-| | |
-|---|---|
-| What | REST API: authentication, one INR wallet per user, transfers, transaction history, reconciliation |
-| Money | Integer **paise** (₹1 = 100 paise), never floating point |
-| Core guarantees | Atomic transfers, no overdrafts under concurrency, idempotent retries, immutable double-entry ledger, read-only reconciliation |
-| Shape | One Node.js process + one MongoDB replica set (a simple monolith) |
-| Tests | 251 automated tests (Jest + Supertest) against a real MongoDB replica set |
-
-## 2. Problem being solved
-
-A naive wallet does `read balance → check → write` from application code.
-With two simultaneous ₹1,000 transfers from a ₹1,500 wallet, both requests
-read ₹1,500, both pass the check, and the wallet ends up at −₹500. A network
-retry can also send the same payment twice, and a crash between "debit A" and
+A naive wallet API reads the balance, checks it, and then writes the new
+balance. That works until two requests arrive together. If a wallet has
+Rs. 1500 and two Rs. 1000 transfers come in at the same moment, both read
+Rs. 1500, both pass the check, and the wallet ends at -Rs. 500. Network retries
+can also send the same payment twice, and a crash between "debit A" and
 "credit B" can make money disappear.
 
-This project shows how a small backend avoids all three:
+This project handles all three cases and has tests that try to break each one.
 
-* **Atomicity:** all writes of a transfer happen in one MongoDB
-  multi-document transaction, or none do.
-* **Concurrency safety:** the debit is a conditional update
-  (`balance ≥ amount`) that the database checks and applies in one step.
-  Conflicting transactions are retried a bounded number of times.
-* **Idempotency:** every transfer carries a client-chosen key, unique per
-  user in the database. A repeat returns the stored result instead of paying
-  again.
-* **Auditability:** every transfer writes one DEBIT and one CREDIT ledger
-  entry. `npm run reconcile` re-derives every balance from the ledger and
-  reports any discrepancy without changing anything.
+## Tech stack
 
-## 3. Technology stack
+- Node.js 22, Express 5
+- MongoDB 8.0 running as a replica set (needed for multi-document transactions)
+- Mongoose 9
+- JWT (jsonwebtoken) for auth, bcryptjs for password hashing
+- Jest and Supertest for tests, mongodb-memory-server to run a real mongod in tests
+- autocannon for the load test
+- GitHub Actions for CI
 
-| Technology | Version | Used for |
-|---|---|---|
-| Node.js | 22 LTS (`.nvmrc`; needs ≥ 20.19) | JavaScript runtime |
-| Express | 5.2 | HTTP server, routing, middleware |
-| MongoDB | 8.0 (single-node replica set) | Database with multi-document transactions |
-| Mongoose | 9.1 | Schemas, validation, indexes, sessions |
-| jsonwebtoken | 9 | JWT (HS256) authentication |
-| bcryptjs | 3 | Password hashing |
-| dotenv | 17 | Loads `.env` |
-| Jest + Supertest | 30 / 7 | Tests (dev) |
-| mongodb-memory-server | 11.4 (MongoDB 8.0.32) | Real `mongod` for tests and `npm run db:dev` (dev) |
-| autocannon | 9 | Load test (dev) |
-| nodemon | 3 | Auto-restart in development (dev) |
-| GitHub Actions | – | CI (`.github/workflows/ci.yml`) |
-
-No Redis, queues, Docker or microservices.
-
-## 4. Architecture diagram
+## How it works
 
 ```
- client (Postman / PowerShell / tests)
-   │  HTTP JSON + "Authorization: Bearer <JWT>"
-   ▼
- ┌──────────────────────── Node.js process (src/server.js) ───────────────────────┐
- │ src/app.js                                                                       │
- │   requestId → requestLogger → express.json → routes → errorHandler               │
- │                                   │                                              │
- │   routes/        auth   accounts   transactions   health                         │
- │                    │       │            │                                        │
- │   middleware/   authMiddleware (Bearer JWT, revocation check, user lookup)       │
- │                    │       │            │                                        │
- │   controllers/  auth    account    transaction  (validate input, shape output)   │
- │                                         │                                        │
- │   services/                 transfer ─► ledger.postDoubleEntry ◄─ funding        │
- │                             history     reconciliation                           │
- │                                         │                                        │
- │   config/transaction.js     runInTransaction (snapshot reads, majority commit,   │
- │                             bounded retries)                                     │
- │   models/                   user · account · transaction · ledger · blackList    │
- └─────────────────────────────────────────┼────────────────────────────────────────┘
-                                           ▼
-                         MongoDB 8.0 replica set "rs0"
- scripts/: db:dev · seed · fund · wallet:status · reconcile · perf (same models/services)
+client --HTTP + Bearer JWT--> Express app
+                                 |
+          requestId -> requestLogger -> json parser -> routes -> error handler
+                                 |
+                  auth middleware (verifies the JWT, loads the user)
+                                 |
+                  controllers (validate input, shape the response)
+                                 |
+                  services: transfer, ledger (postDoubleEntry), funding,
+                            history, reconciliation
+                                 |
+                  runInTransaction (MongoDB transaction with bounded retries)
+                                 |
+                  MongoDB replica set: users, accounts, transactions, ledgers
 ```
 
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The main ideas:
 
-## 5. Main features
+**Money is stored in paise as integers.** Rs. 500 is stored as 50000. No
+floating point anywhere near money. Amounts are capped at 10,00,000 rupees per
+transfer and balances are capped well below the safe integer limit.
 
-* **Auth:** register, login, logout (token revocation), `GET /me`. Bearer JWT
-  only (no cookies, so no CSRF), HS256 pinned, bcrypt-hashed passwords,
-  validated and normalized input.
-* **Wallets:** one INR wallet per user (unique index), ACTIVE/FROZEN status,
-  owner-only access (another user's wallet returns 404).
-* **Transfers:** `POST /api/transactions`. Source ownership comes from the JWT.
-  Amounts are validated integers. A transfer is rejected for self-transfer, a
-  missing destination, a frozen wallet, insufficient funds or the balance cap.
-  It is atomic.
-* **Concurrency:** conditional debit plus MongoDB write-conflict detection,
-  with bounded jittered retries (`TXN_MAX_ATTEMPTS`) and a clear 503 when they
-  run out.
-* **Idempotency:** per-user unique key. A replay gives 200; a different
-  payload gives 409. Duplicates arriving at the same moment apply once. It is
-  safe after an uncertain commit.
-* **Double-entry ledger:** one DEBIT and one CREDIT per transaction, entries
-  immutable. A single SYSTEM_FUNDING account is the source of all simulated
-  money, so Σ balances = 0.
-* **History:** paginated, newest first, direction relative to your wallet,
-  and no other user's personal data.
-* **Reconciliation:** `npm run reconcile` runs 17 kinds of checks on a consistent
-  snapshot, never writes, and exits 0, 1 or 2.
-* **Observability:** JSON log lines with request id, user id, transaction id
-  and duration; secrets are never logged. `GET /health` checks the database.
-* **Dev tooling:** seed, fund and freeze scripts (local development database only), a
-  zero-install dev database, a bounded load test, and CI.
+**Every transfer is one database transaction.** A transfer inserts the
+transaction record, inserts one DEBIT and one CREDIT ledger entry, decrements
+the sender and increments the receiver. If anything fails, all of it is rolled
+back. A failed transfer leaves nothing behind.
 
-## 6. Setup prerequisites
+**Overdrafts are blocked by the database, not by JavaScript.** The debit is a
+conditional update:
 
-| Tool | Why | Check |
-|---|---|---|
-| Windows 10/11 with PowerShell 5.1+ | All commands below are PowerShell | `$PSVersionTable.PSVersion` |
-| **Node.js 22 LTS** (npm included) | Runs the app | `node -v` → `v22.x` |
-| Git | Clone the repository | `git --version` |
-| MongoDB 8.0 as a **replica set** | Transactions need a replica set | Option A needs nothing extra (see section 8) |
-| Internet on first install | npm packages; the ~100 MB `mongod` download for tests and `db:dev` | |
+```js
+updateOne({ _id: from, status: "ACTIVE", balance: { $gte: amount } },
+          { $inc: { balance: -amount } })
+```
 
-Install with winget (from an elevated PowerShell if prompted):
+Two transfers from the same wallet both write the same document, so MongoDB
+lets one commit and aborts the other with a write conflict. The aborted one is
+retried (at most 10 attempts, with random backoff), sees the new balance and
+gets rejected with INSUFFICIENT_FUNDS if the money is gone. No locks or mutexes
+in the app. If the retries run out the API returns 503 and nothing is applied.
+
+**Idempotency keys stop double payments.** Every transfer request carries an
+idempotencyKey picked by the client. The key is stored on the transaction with
+a unique index on (user, key). Sending the same request again returns the
+original result with `idempotentReplay: true` and moves no money. Reusing a key
+with a different amount or destination returns 409. This also covers the case
+where the commit succeeds but the client never gets the response.
+
+**Double-entry ledger.** CREDIT adds to a balance, DEBIT subtracts. For every
+account, stored balance = credits - debits. Simulated money enters through a
+single SYSTEM_FUNDING account whose balance goes negative, so the sum of all
+balances is always zero. Ledger entries cannot be updated or deleted through
+the app.
+
+**Reconciliation.** `npm run reconcile` reads everything from one consistent
+snapshot and checks every rule above: two entries per transaction with the
+right accounts and amounts, no orphan entries, every stored balance matches the
+ledger, no negative wallets, debits equal credits, balances sum to zero. It
+only reports problems, it never changes data.
+
+More detail is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Features
+
+- Register, login, logout (token revocation) and a /me endpoint
+- One INR wallet per user, enforced with a unique index
+- Wallets can be ACTIVE or FROZEN. Frozen wallets cannot send or receive
+- Transfers between wallets, only from your own wallet
+- Paginated transaction history and transaction details
+- Idempotent transfers with safe retries
+- Reconciliation CLI with exit codes (0 pass, 1 fail, 2 could not run)
+- Structured JSON logs with a request id on every response. Passwords, tokens
+  and request bodies are never logged
+- Health check that also checks the database
+- Dev scripts to seed demo users, add money and freeze wallets. There is no
+  public endpoint that creates money or freezes wallets
+
+## Setup (Windows, PowerShell)
+
+You need Node.js 22 and Git. MongoDB does not need to be installed, the project
+can start a local one for you.
 
 ```powershell
 winget install --id OpenJS.NodeJS.22 --exact --source winget
 winget install --id Git.Git --exact --source winget
-# close and reopen PowerShell so node, npm and git are on PATH
-node -v
-npm -v
 ```
 
-> The winget package ids above were checked with `winget show` on 2026-11-24.
-> The installs themselves were not re-run on the verification machine, which
-> already had Node v22.23.5 and npm 10.9.9.
-
-## 7. Windows PowerShell setup
+Clone and install:
 
 ```powershell
-git clone <your-fork-url> backend-ledger      # or the upstream URL
-cd backend-ledger
-npm ci                                        # installs exactly what package-lock.json lists
-Copy-Item .env.example .env
+git clone https://github.com/RohinGupta288/concurrent-wallet-ledger.git
+cd concurrent-wallet-ledger
+npm ci
+```
 
-# Replace the placeholder JWT secret with a random 96-character one
+Create the .env file and put a random JWT secret in it:
+
+```powershell
+Copy-Item .env.example .env
 $secret = node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 (Get-Content .env) -replace '^JWT_SECRET=.*', "JWT_SECRET=$secret" | Set-Content .env -Encoding ascii
 ```
 
-> **OneDrive / Dropbox:** if the project folder is synced, `node_modules` and
-> the local database files get synced too. Consider a non-synced folder, or set
-> `DEV_DB_DIR` (section 9) so the database files live elsewhere.
+The server refuses to start if the placeholder secret is still there.
 
-If PowerShell blocks `npm` with "running scripts is disabled", run
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use `npm.cmd`
-instead of `npm`.
+If PowerShell says running scripts is disabled, run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
-## 8. MongoDB installation and configuration
+### Environment variables
 
-Transfers use multi-document transactions, and MongoDB only supports those on
-a **replica set**. The app checks this at startup and refuses a standalone
-server (`connectToDB` in `src/config/db.js`).
+| Variable | Default | What it does |
+|---|---|---|
+| NODE_ENV | development | development, test or production |
+| PORT | 3000 | HTTP port |
+| MONGO_URI | required | Must be a replica set, e.g. mongodb://127.0.0.1:27017/backend-ledger?replicaSet=rs0 |
+| JWT_SECRET | required | At least 32 characters |
+| JWT_EXPIRES_IN | 1d | Token lifetime, like 15m, 1h or 1d |
+| BCRYPT_SALT_ROUNDS | 10 | Between 4 and 15 |
+| LOG_LEVEL | info | debug, info, warn, error or silent |
+| TXN_MAX_ATTEMPTS | 10 | Max attempts for a transaction that hits write conflicts |
+| TEST_MONGO_URI | not set | Run the tests against your own replica set (database name must contain "test") |
+| DEV_DB_PORT | 27017 | Port for npm run db:dev |
+| DEV_DB_DIR | ./.data | Data folder for npm run db:dev |
 
-### Option A: zero-install development database (recommended for learning)
+### MongoDB
+
+Transactions only work on a replica set, and the app checks this on startup.
+The easiest way is the bundled dev database:
 
 ```powershell
 npm run db:dev
 ```
 
-This starts a real `mongod` 8.0.32 (the binary that `mongodb-memory-server`
-downloads during `npm ci`) as single-node replica set `rs0` on
-`127.0.0.1:27017`, storing data in `.data/mongodb` (git-ignored). **Leave this
-terminal open**, and press **Ctrl+C** to stop MongoDB cleanly. Expected output:
+This starts mongod 8.0 as a single node replica set called rs0 on port 27017
+and keeps data in .data/. Leave the terminal open, Ctrl+C stops it.
 
-```
-MongoDB mongod-x64-win32-8.0.32.exe is running as replica set "rs0".
-  MONGO_URI=mongodb://127.0.0.1:27017/backend-ledger?replicaSet=rs0
-  data: ...\backend-ledger\.data\mongodb
-  log:  ...\backend-ledger\.data\mongod.log
-Press Ctrl+C to stop.
-```
-
-### Option B: MongoDB Community Server as a Windows service
-
-> Not executed on the verification machine (MongoDB Server was not installed
-> there). These are the standard steps; adjust paths to your install.
+If you would rather install MongoDB as a Windows service (I have not tested
+these steps on my machine):
 
 ```powershell
-# 8.0.x keeps you on the version the tests use (winget's default is newer)
 winget install --id MongoDB.Server --exact --version 8.0.23 --source winget
 winget install --id MongoDB.Shell --exact --source winget
-
-# Enable replication in the service's config file (elevated PowerShell)
-$cfg = "C:\Program Files\MongoDB\Server\8.0\bin\mongod.cfg"
-Add-Content $cfg "`nreplication:`n  replSetName: rs0"
+Add-Content "C:\Program Files\MongoDB\Server\8.0\bin\mongod.cfg" "`nreplication:`n  replSetName: rs0"
 Restart-Service MongoDB
-
-# One-time: turn the server into a single-node replica set
 mongosh --quiet --eval 'rs.initiate({ _id: "rs0", members: [ { _id: 0, host: "127.0.0.1:27017" } ] })'
-mongosh --quiet --eval 'rs.status().ok'     # 1
 ```
 
-Use the same `MONGO_URI` as in Option A. Don't run both options on port 27017
-at the same time.
+## Running it
 
-## 9. Environment variables
-
-Copy `.env.example` to `.env` (section 7). `.env` is git-ignored; never commit
-it. The app validates these at startup (`validateConfig`, `src/config/env.js`)
-and exits with a list of problems if any is invalid.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `NODE_ENV` | `development` | `development`, `test` or `production`. The dev scripts run only with `development` or `test` |
-| `PORT` | `3000` | HTTP port |
-| `MONGO_URI` | – (required) | Must point at a replica set, e.g. `mongodb://127.0.0.1:27017/backend-ledger?replicaSet=rs0` |
-| `JWT_SECRET` | – (required) | ≥ 32 characters; generate as in section 7 |
-| `JWT_EXPIRES_IN` | `1d` | Token lifetime (`15m`, `1h`, `1d`, …) |
-| `BCRYPT_SALT_ROUNDS` | `10` | 4–15 |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`, `silent` |
-| `TXN_MAX_ATTEMPTS` | `10` | 1–20; attempts per transaction on write conflicts |
-| `TEST_MONGO_URI` | unset | Run tests against your own replica set instead of the automatic one. The database name **must contain `test`** (tests delete all data) |
-| `DEV_DB_PORT` | `27017` | Port for `npm run db:dev` |
-| `DEV_DB_DIR` | `./.data` | Data folder for `npm run db:dev` |
-
-## 10. Starting the backend
-
-With MongoDB running (section 8), in a **second** terminal:
+With the database running, in a second terminal:
 
 ```powershell
-npm start            # or: npm run dev  (restarts on file changes)
+npm start
 ```
 
-Expected log lines:
-
-```
-{"time":"…","level":"info","event":"db.connected","database":"backend-ledger","replicaSet":"rs0"}
-{"time":"…","level":"info","event":"server.started","port":3000,"nodeEnv":"development"}
-```
-
-Health check:
+You should see `db.connected` and `server.started` in the logs. Check it:
 
 ```powershell
 Invoke-RestMethod http://localhost:3000/health
-# status uptimeSeconds database
-# ------ ------------- --------
-# ok                32 @{connected=True; replicaSet=rs0}
 ```
 
-`/health` returns 503 with `"status": "unavailable"` when the database is
-unreachable. Stop the server with Ctrl+C (graceful shutdown).
-
-## 11. Seeding simulated wallets
+Then add the demo users (safe to run more than once):
 
 ```powershell
 npm run seed
 ```
 
-This creates (or reuses) three demo users, each with a wallet, and funds them
-through the SYSTEM_FUNDING account. It is safe to run repeatedly: each funding
-uses a fixed idempotency key, so balances never grow on a second run.
-
-| Email | Password | Initial funding |
+| Email | Password | Starting balance |
 |---|---|---|
-| `alice@example.com` | `Password@123` | ₹10,000 |
-| `bob@example.com` | `Password@123` | ₹5,000 |
-| `charlie@example.com` | `Password@123` | ₹2,000 |
+| alice@example.com | Password@123 | Rs. 10,000 |
+| bob@example.com | Password@123 | Rs. 5,000 |
+| charlie@example.com | Password@123 | Rs. 2,000 |
 
-Other development scripts. Like `seed`, they run only when `NODE_ENV` is `development` or `test` **and** `MONGO_URI` points at this machine (`127.0.0.1`, `localhost` or `::1`):
+Other dev scripts. They only run with NODE_ENV set to development or test and
+a database on localhost:
 
 ```powershell
-# Add simulated money (rupees, up to 2 decimals); the same --key never applies twice
 npm run fund -- --email alice@example.com --amount 2500 --key topup-alice-001
-
-# Freeze / unfreeze a wallet (a frozen wallet can neither send nor receive)
 npm run wallet:status -- --email bob@example.com --status FROZEN
 npm run wallet:status -- --email bob@example.com --status ACTIVE
 ```
 
-## 12. API endpoint reference
+## API
 
-Base URL `http://localhost:3000`. JSON in and out. Amounts are integer paise.
-✔ = requires `Authorization: Bearer <token>`.
+All amounts are integers in paise. Routes marked "yes" need the header
+`Authorization: Bearer <token>`.
 
-| Method | Path | Auth | Body / query | Success | Typical errors |
-|---|---|---|---|---|---|
-| GET | `/health` | – | – | 200 | 503 |
-| POST | `/api/auth/register` | – | `name`, `email`, `password` (8–72 bytes) | 201 `{user, token}` | 400, 409 `DUPLICATE_EMAIL` |
-| POST | `/api/auth/login` | – | `email`, `password` | 200 `{user, token}` | 400, 401 `INVALID_CREDENTIALS` |
-| POST | `/api/auth/logout` | ✔ | – | 200 | 401 |
-| GET | `/api/auth/me` | ✔ | – | 200 `{user}` | 401 |
-| POST | `/api/accounts` | ✔ | – | 201 `{account}` | 409 `WALLET_EXISTS` |
-| GET | `/api/accounts` | ✔ | – | 200 `{accounts: [...]}` (0 or 1) | 401 |
-| GET | `/api/accounts/:accountId` | ✔ | – | 200 `{account}` | 400 `INVALID_ID`, 404 `WALLET_NOT_FOUND` |
-| GET | `/api/accounts/balance/:accountId` | ✔ | – | 200 `{accountId, balance, currency}` | 400, 404 |
-| POST | `/api/transactions` | ✔ | `fromAccount`, `toAccount`, `amount`, `idempotencyKey` | 201 new / 200 replay | 400, 403 `SOURCE_WALLET_NOT_OWNED`, 404 `DESTINATION_WALLET_NOT_FOUND`, 409 `IDEMPOTENCY_KEY_REUSED`, 422 `INSUFFICIENT_FUNDS` / `WALLET_FROZEN` / `BALANCE_LIMIT_EXCEEDED`, 503 `TRANSACTION_RETRY_EXHAUSTED` |
-| GET | `/api/transactions` | ✔ | `?page=1&limit=20` (limit ≤ 100) | 200 `{items, page, limit, total, totalPages}` | 400 |
-| GET | `/api/transactions/:transactionId` | ✔ | – | 200 `{transaction}` | 400, 404 `TRANSACTION_NOT_FOUND` |
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | /health | no | 200 when the app and the database are up |
+| POST | /api/auth/register | no | name, email, password (8 to 72 bytes) |
+| POST | /api/auth/login | no | returns a token |
+| POST | /api/auth/logout | yes | revokes the current token |
+| GET | /api/auth/me | yes | current user |
+| POST | /api/accounts | yes | create your wallet (409 if you already have one) |
+| GET | /api/accounts | yes | your wallet |
+| GET | /api/accounts/:accountId | yes | wallet details, 404 if it is not yours |
+| GET | /api/accounts/balance/:accountId | yes | balance only |
+| POST | /api/transactions | yes | fromAccount, toAccount, amount, idempotencyKey |
+| GET | /api/transactions?page=1&limit=20 | yes | your history, newest first |
+| GET | /api/transactions/:transactionId | yes | one transaction you took part in |
 
-Rules worth knowing:
+Errors always look like this:
 
-* `amount` must be a JSON **integer** from 1 to 100,000,000 paise (₹10 lakh).
-  `"100"`, `1.5` and `-1` are rejected.
-* `idempotencyKey`: 8–128 characters from `A–Z a–z 0–9 _ . : -`. Use a new
-  one (e.g. a GUID) per payment, and **reuse it only to retry the same
-  payment**. A 503 means "retry with the same key".
-* Another user's wallet or transaction returns **404**, so ids are not
-  confirmed to exist.
-* Every error has the shape `{"error": {"code", "message", "requestId", "details"?}}`.
-  Every response has an `X-Request-Id` header that matches the server log line.
+```json
+{ "error": { "code": "INSUFFICIENT_FUNDS", "message": "Insufficient funds in your wallet", "requestId": "..." } }
+```
 
-## 13. Example API requests and responses
+Status codes used: 400 bad input, 401 not logged in, 403 not your wallet,
+404 not found, 409 conflict (duplicate email, wallet exists, key reused),
+413 body too large, 415 unsupported encoding, 422 business rule (insufficient
+funds, frozen wallet, balance limit), 503 too much contention, retry with the
+same key.
 
-Run after `npm run seed`, with the server on port 3000. Every command and
-output below was executed against this project on 2026-11-24. Ids,
-timestamps and balances will differ for you.
+### Example in PowerShell
 
-PowerShell's `Invoke-RestMethod` throws on 4xx/5xx. This helper prints the
-status and JSON error body instead:
+Invoke-RestMethod throws on errors, so this small helper prints the error body
+instead:
 
 ```powershell
 $base = "http://localhost:3000"
@@ -364,36 +261,45 @@ function Invoke-Api($Method, $Path, $Token, $Body) {
     try { Invoke-RestMethod @params }
     catch { "HTTP $([int]$_.Exception.Response.StatusCode): $($_.ErrorDetails.Message)" }
 }
-```
 
-**Log in and find the wallets**
-
-```powershell
 $alice = Invoke-Api Post "/api/auth/login" $null @{ email = "alice@example.com"; password = "Password@123" }
-$bob   = Invoke-Api Post "/api/auth/login" $null @{ email = "bob@example.com";   password = "Password@123" }
+$bob   = Invoke-Api Post "/api/auth/login" $null @{ email = "bob@example.com"; password = "Password@123" }
 $aliceWallet = (Invoke-Api Get "/api/accounts" $alice.token).accounts[0]
 $bobWallet   = (Invoke-Api Get "/api/accounts" $bob.token).accounts[0]
-$aliceWallet | ConvertTo-Json
+
+# send Rs. 500 from Alice to Bob
+$transfer = @{ fromAccount = $aliceWallet.id; toAccount = $bobWallet.id; amount = 50000; idempotencyKey = "demo-" + [guid]::NewGuid() }
+Invoke-Api Post "/api/transactions" $alice.token $transfer
+
+# same request again: no new payment, idempotentReplay is True
+(Invoke-Api Post "/api/transactions" $alice.token $transfer).idempotentReplay
+
+# same key, different amount: 409 IDEMPOTENCY_KEY_REUSED
+$changed = $transfer.Clone(); $changed.amount = 99
+Invoke-Api Post "/api/transactions" $alice.token $changed
+
+# more than she has: 422 INSUFFICIENT_FUNDS
+Invoke-Api Post "/api/transactions" $alice.token @{ fromAccount = $aliceWallet.id; toAccount = $bobWallet.id; amount = 100000000; idempotencyKey = "demo-" + [guid]::NewGuid() }
+
+# spending Bob's wallet with Alice's token: 403 SOURCE_WALLET_NOT_OWNED
+Invoke-Api Post "/api/transactions" $alice.token @{ fromAccount = $bobWallet.id; toAccount = $aliceWallet.id; amount = 100; idempotencyKey = "demo-" + [guid]::NewGuid() }
+
+Invoke-Api Get "/api/accounts/balance/$($aliceWallet.id)" $alice.token
+Invoke-Api Get "/api/transactions?page=1&limit=5" $alice.token
 ```
 
-```json
-{ "id": "6b04ce1c573220ec5d8794f5", "currency": "INR", "balance": 975000, "status": "ACTIVE", "createdAt": "2026-11-23T23:37:00.263Z" }
-```
-
-**Transfer ₹500 (50,000 paise) from Alice to Bob**
-
-```powershell
-$key = "demo-" + [guid]::NewGuid()
-$transfer = @{ fromAccount = $aliceWallet.id; toAccount = $bobWallet.id; amount = 50000; idempotencyKey = $key }
-Invoke-Api Post "/api/transactions" $alice.token $transfer | ConvertTo-Json
-```
+A successful transfer returns something like:
 
 ```json
 {
   "transaction": {
-    "id": "6b05963e5ca7fec3f680c7e5", "type": "TRANSFER",
-    "fromAccount": "6b04ce1c573220ec5d8794f5", "toAccount": "6b04ce1c573220ec5d879507",
-    "amount": 50000, "currency": "INR", "status": "COMPLETED",
+    "id": "6b05963e5ca7fec3f680c7e5",
+    "type": "TRANSFER",
+    "fromAccount": "6b04ce1c573220ec5d8794f5",
+    "toAccount": "6b04ce1c573220ec5d879507",
+    "amount": 50000,
+    "currency": "INR",
+    "status": "COMPLETED",
     "idempotencyKey": "demo-0da52ed6-9625-4803-ab3c-143bce8b6cec",
     "createdAt": "2026-11-24T13:50:54.451Z"
   },
@@ -401,206 +307,133 @@ Invoke-Api Post "/api/transactions" $alice.token $transfer | ConvertTo-Json
 }
 ```
 
-**Retry the same request (no second payment) and reuse the key for a different amount**
+The same calls work in Postman. Log in, copy the token and set it as a Bearer
+token on the other requests.
+
+## Tests
 
 ```powershell
-(Invoke-Api Post "/api/transactions" $alice.token $transfer).idempotentReplay   # True  (HTTP 200)
-$changed = $transfer.Clone(); $changed.amount = 99
-Invoke-Api Post "/api/transactions" $alice.token $changed
+npm test
+npx jest tests/concurrency.test.js --runInBand
 ```
 
-```
-True
-HTTP 409: {"error":{"code":"IDEMPOTENCY_KEY_REUSED","message":"This idempotency key was already used for a different request","requestId":"ef1b4549-c4db-4407-b7ad-cba5e57acb3a"}}
-```
+There are 251 tests and they all pass locally. They run against a real
+MongoDB replica set that the test setup starts by itself, so no .env is needed.
+The full run takes one to a few minutes depending on the machine.
 
-**Rejected transfers**
+What they cover:
+
+- auth: validation, duplicate emails, wrong passwords, expired, forged and revoked tokens
+- wallets: one per user even under concurrent requests, owner-only access
+- transfers: every rejection case, plus injected failures halfway through a
+  transfer to prove nothing partial is saved
+- concurrency: two Rs. 1000 transfers from Rs. 1500 (exactly one wins), 25
+  transfers racing for the same balance, criss-cross transfers, 10 identical
+  requests with the same key (one transfer)
+- idempotency: replays, key reuse, and the case where a commit happened but
+  the response was lost
+- reconciliation: 17 different kinds of deliberately corrupted data, each one
+  detected
+
+The money tests check the database afterwards (balances, counts, ledger
+totals) and run reconciliation, not just the HTTP status codes.
+
+CI runs `npm ci` and `npm test` on every push (.github/workflows/ci.yml).
+
+Details and the list of things I could not verify are in
+[docs/TEST_REPORT.md](docs/TEST_REPORT.md).
+
+## Reconciliation
 
 ```powershell
-# Overdraft
-Invoke-Api Post "/api/transactions" $alice.token @{ fromAccount = $aliceWallet.id; toAccount = $bobWallet.id; amount = 100000000; idempotencyKey = "demo-" + [guid]::NewGuid() }
-# Spending Bob's wallet with Alice's token
-Invoke-Api Post "/api/transactions" $alice.token @{ fromAccount = $bobWallet.id; toAccount = $aliceWallet.id; amount = 100; idempotencyKey = "demo-" + [guid]::NewGuid() }
-# Frozen destination
-npm run wallet:status -- --email bob@example.com --status FROZEN
-Invoke-Api Post "/api/transactions" $alice.token @{ fromAccount = $aliceWallet.id; toAccount = $bobWallet.id; amount = 100; idempotencyKey = "demo-" + [guid]::NewGuid() }
-npm run wallet:status -- --email bob@example.com --status ACTIVE
+npm run reconcile
+npm run reconcile -- --json
 ```
 
-```
-HTTP 422: {"error":{"code":"INSUFFICIENT_FUNDS","message":"Insufficient funds in your wallet","requestId":"8ca7b3b4-…"}}
-HTTP 403: {"error":{"code":"SOURCE_WALLET_NOT_OWNED","message":"fromAccount must be your own wallet","requestId":"3433067f-…"}}
-HTTP 422: {"error":{"code":"WALLET_FROZEN","message":"The destination wallet is frozen","requestId":"89eb7e89-…","details":{"account":"toAccount"}}}
-```
-
-**Balance, history and one transaction**
-
-```powershell
-Invoke-Api Get "/api/accounts/balance/$($aliceWallet.id)" $alice.token | ConvertTo-Json -Compress
-$history = Invoke-Api Get "/api/transactions?page=1&limit=3" $alice.token
-$history.items[0] | ConvertTo-Json -Compress
-Invoke-Api Get "/api/transactions/$($history.items[0].transactionId)" $alice.token | ConvertTo-Json
-```
-
-```json
-{"accountId":"6b04ce1c573220ec5d8794f5","balance":925000,"currency":"INR"}
-{"transactionId":"6b05963e5ca7fec3f680c7e5","type":"TRANSFER","direction":"DEBIT","amount":50000,"currency":"INR","status":"COMPLETED","counterpartyAccountId":"6b04ce1c573220ec5d879507","createdAt":"2026-11-24T13:50:54.451Z"}
-```
-
-**Register a new user, create a wallet, log out**
-
-```powershell
-$dana = Invoke-Api Post "/api/auth/register" $null @{ name = "Dana"; email = "dana@example.com"; password = "Dana-Pass-2026" }
-(Invoke-Api Post "/api/accounts" $dana.token).account | ConvertTo-Json -Compress   # balance 0, ACTIVE
-Invoke-Api Post "/api/accounts" $dana.token                                         # HTTP 409 WALLET_EXISTS
-Invoke-Api Post "/api/auth/logout" $dana.token
-Invoke-Api Get "/api/auth/me" $dana.token                                           # HTTP 401 INVALID_TOKEN (revoked)
-```
-
-Postman works the same way: `POST /api/auth/login`, copy `token`, then set
-**Authorization → Bearer Token** on every other request.
-
-> PowerShell 5.1 strips text in angle brackets from error messages, so the
-> 401 message `Missing 'Authorization: Bearer <token>' header` shows as
-> `…Bearer ' header` there. The server sends the full text.
-
-## 14. Running tests
-
-```powershell
-npm test                                          # all 251 tests, one file at a time (--runInBand)
-npx jest tests/concurrency.test.js --runInBand    # one file
-npx jest -t "double spending" --runInBand         # tests whose name matches
-```
-
-`tests/globalSetup.js` starts a throw-away MongoDB 8.0.32 **replica set**
-(never a standalone server), so the tests exercise real transactions. No
-`.env` is needed; `tests/setupEnv.js` sets safe test values. Last local run:
-**251 passed, 0 failed, 14 suites**. See
-[docs/TEST_REPORT.md](docs/TEST_REPORT.md) for details and for what is not
-verified. Full-suite time varies a lot by machine and power state (49 s to
-385 s on the verification laptop; 79–112 s on AC power).
-
-CI: `.github/workflows/ci.yml` runs `npm ci` and `npm test` on Ubuntu for
-every push and pull request. **It has not yet run on GitHub**; it will run
-the first time this branch is pushed to a repository you own.
-
-## 15. Running reconciliation
-
-```powershell
-npm run reconcile             # human-readable report
-npm run reconcile -- --json   # machine-readable
-$LASTEXITCODE                 # 0 = PASS, 1 = FAIL, 2 = could not run
-```
-
-Output from the development database on 2026-11-24:
+Output from my dev database after the load tests and manual testing:
 
 ```
-Ledger reconciliation
----------------------
-Wallets checked:       44
-Accounts checked:      45 (wallets + system funding account)
-Transactions checked:  1064
-Ledger entries:        2128
-Total debit:           ₹4018261.42 (401826142 paise)
-Total credit:          ₹4018261.42 (401826142 paise)
-Total funded:          ₹4017501.25
+Wallets checked:       85
+Transactions checked:  4693
+Ledger entries:        9386
+Total debit:           801904878 paise
+Total credit:          801904878 paise
 Inconsistencies:       0
 Result:                PASS
 ```
 
-It reads one consistent snapshot, so it is safe to run while the server is
-handling transfers. It **never modifies data**, not even indexes: discrepancies are reported
-for a human to investigate. The checks are listed in
-[docs/ARCHITECTURE.md §7](docs/ARCHITECTURE.md#7-ledger-invariants-and-reconciliation).
-
-## 16. Running the performance test
+## Load test
 
 ```powershell
-npm run db:dev                                   # terminal 1 (if not already running)
-npm run perf                                     # terminal 2: 10 connections × 10 s per scenario
+npm run perf
 npm run perf -- --connections 20 --duration 30 --json > my-run.json
 ```
 
-The script starts its own server process on a free port, creates 20 disposable
-`perf-<runId>-N@example.test` users, and measures throughput, average, p50,
-p95 and p99 latency and error rate for: a balance read, transfers between
-disjoint wallet pairs, and transfers all from one "hot" wallet. Afterwards it
-checks, idempotency key by key, that every acknowledged (201) transfer is
-stored and no rejected one is, and that reconciliation passes. Limits: local database only, at most 50 connections and 60 s.
+It starts its own server, creates 20 throwaway users and runs three scenarios
+with autocannon: balance reads, transfers between separate wallet pairs, and
+transfers all from one wallet. After that it checks every idempotency key
+against the database and runs reconciliation. It only runs against a local
+database and is capped at 50 connections and 60 seconds.
 
-Measured results, conditions and caveats are in
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md). On one laptop, at 10 connections,
-they ranged from 14 to 368 req/s depending on scenario and power state
-(battery with background load vs AC power).
-They describe that machine, not a capacity figure.
+Results on my laptop (i7-1260P, 16 GB RAM, plugged in), 10 connections for
+10 seconds per scenario:
 
-## 17. Known limitations
+| Scenario | Requests/s | Avg latency | p95 latency | Errors |
+|---|---|---|---|---|
+| Balance read | 368 | 27 ms | 44 ms | 0% |
+| Transfers, separate wallets | 161 | 62 ms | 105 ms | 0% |
+| Transfers, all from one wallet | 64 | 146 ms | 718 ms | 0.47% (503) |
 
-* **Simulated money only, not production-ready.** No rate limiting or login
-  throttling, no refresh tokens, no TLS (run behind a reverse proxy), no admin
-  roles, no account recovery, no multi-currency. Registration answers 409 for
-  an existing email, and a transfer reports a frozen destination, so both
-  facts can be probed (there is no rate limiting to slow that down).
-* **Hot-wallet contention:** many simultaneous transfers from one wallet
-  serialize through retries. Under heavy load a few requests return 503
-  `TRANSACTION_RETRY_EXHAUSTED`. Nothing is applied, and the client should
-  retry with the same key.
-* **Page-number pagination:** items can shift between pages while new
-  transfers arrive; `total` is counted separately from the page.
-* **Reconciliation loads all data into memory.** That suits this project's
-  scale; a large ledger would need database-side aggregation or incremental
-  checkpoints.
-* **Ledger immutability is enforced in Mongoose**, not by database roles:
-  someone with direct database access could change entries. Reconciliation
-  would detect it.
-* **Failed requests are not recorded.** Only committed transactions are
-  stored, so there is no audit trail of rejected attempts beyond the logs.
-* **Single-node replica set** locally and in tests. Multi-node behaviour
-  (failover, replication lag) has not been tested.
-* **CI has not run on GitHub yet.** Performance figures come from one laptop.
-* `npm audit` reports **0** vulnerabilities in runtime dependencies. It still
-  lists moderate advisories for `glob` and `minimatch`, which are
-  development-only dependencies of Jest and nodemon (never loaded by the
-  server). The suggested `--force` fix would downgrade Jest, so it was not
-  applied. `npm ci` also prints a deprecation notice for `glob@10`.
+On battery the numbers were 3 to 4 times lower. The 503s in the last scenario
+are transfers that hit write conflicts 10 times in a row. None of them were
+saved, so retrying them with the same key is safe. Every run passed the
+correctness checks. All runs are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
----
+## Project structure
 
-## Documentation map
+```
+src/
+  server.js            starts everything: config, database, HTTP server
+  app.js               express app and middleware order
+  config/              env.js, db.js, transaction.js (runInTransaction)
+  middleware/          request id, request log, auth, errors
+  routes/              URL to controller
+  controllers/         auth, account, transaction, health
+  services/            transfer, ledger, funding, history, reconciliation
+  models/              user, account, transaction, ledger, token blacklist
+  utils/               AppError, logger, validators, money
+scripts/               db:dev, seed, fund, wallet:status, reconcile, perf
+tests/                 jest tests and helpers
+docs/                  architecture, test report, performance, audit, plan
+```
 
-| File | Read it for |
-|---|---|
-| [docs/START_HERE.md](docs/START_HERE.md) | **First read.** The whole project in two days, for someone new to JavaScript, Node.js and MongoDB |
-| [docs/LEARNING_GUIDE.md](docs/LEARNING_GUIDE.md) | Full reference: fundamentals, code walkthroughs, exercises, 20 interview questions |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, models, transaction lifecycle, concurrency, idempotency, invariants, security |
-| [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | What was tested and verified, and what was not |
-| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmark method and measured results |
-| [docs/AUDIT.md](docs/AUDIT.md) | Defects found in the original code |
-| [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Milestones and progress |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Conventions for changing the code: money-correctness rules, testing, git |
+## Known limitations
 
-## Attribution and license
+- Simulated money only. No rate limiting, refresh tokens, admin roles or
+  account recovery.
+- Many transfers from the same wallet at once get slower, and a few may get a
+  503 under heavy load (safe to retry with the same key).
+- History uses page numbers, so items can shift between pages while new
+  transfers come in.
+- Reconciliation loads everything into memory, which is fine at this size but
+  would not scale to a large ledger.
+- The ledger is protected from edits in the app layer, not by database
+  permissions. Reconciliation would catch a direct edit.
+- Only tested on a single node replica set.
+- Registering an existing email returns 409, and a transfer to a frozen
+  wallet says so, which means both can be probed.
 
-This project is derived from
-**[ankurdotio/backend-ledger](https://github.com/ankurdotio/backend-ledger)**
-by **ankurdotio**, whose 11 original commits (January 2026) are preserved in
-this repository's history. The original provided the Express and Mongoose
-skeleton, JWT register/login/logout with token blacklisting, the account,
-transaction and immutable ledger models with the CREDIT/DEBIT convention, and
-a first transfer endpoint with an idempotency key.
+## Credits and license
 
-The changes made here are listed in [docs/AUDIT.md](docs/AUDIT.md) and
-[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). In summary: the
-transfer path was rewritten to be atomic, concurrency-safe and idempotent; a
-stored balance, the SYSTEM_FUNDING account and the ledger invariants were
-added; auth was hardened; e-mail notifications and the public money-creation
-endpoint were removed; and reconciliation, structured logging, tests, CI, a
-benchmark and documentation were added.
+This started from
+[ankurdotio/backend-ledger](https://github.com/ankurdotio/backend-ledger), and
+the original commits are kept in the history. The original had the Express and
+Mongoose setup, JWT login and logout, the account, transaction and ledger
+models and a first version of the transfer endpoint. I rewrote the transfer
+flow and added the stored balances, funding account, idempotency, retries,
+reconciliation, logging, tests, CI, the load test and the docs. The full list
+of what changed and why is in [docs/AUDIT.md](docs/AUDIT.md).
 
-**License:** the upstream repository contains **no LICENSE file**.
-`package.json` has `"license": "ISC"`, which npm adds by default; it is a
-metadata field, not a license grant, and it has been left unchanged. No
-license file has been added on the original author's behalf. Without an
-explicit license, default copyright applies to the original code. **Confirm
-reuse terms with the original author before publishing or redistributing
-this project.**
+The original repository has no LICENSE file. The "license": "ISC" line in
+package.json is just the npm default and I left it as it was. I have not added
+a license on the original author's behalf.

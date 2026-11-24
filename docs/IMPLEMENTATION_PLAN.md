@@ -36,7 +36,7 @@ src/
   utils/                      AppError, logger, validators, money
 scripts/                      dev-db, seed, fund-wallet, set-wallet-status, reconcile, perf
 tests/                        globalSetup/Teardown, setupEnv, helpers/, *.test.js
-docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_GUIDE, ARCHITECTURE, TEST_REPORT
+docs/                         AUDIT, IMPLEMENTATION_PLAN, ARCHITECTURE, TEST_REPORT, PERFORMANCE
 .github/workflows/ci.yml
 ```
 
@@ -121,7 +121,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 ## 6. Design adjustments (2026-11-24)
 
 1. Full engineering depth is kept: concurrency, idempotency, double entry, reconciliation, security, tests, CI, and performance testing.
-2. Add `docs/START_HERE.md`: a concise guide following one transfer end to end, the 10–15 key files and functions, and a two-day sequence. `LEARNING_GUIDE.md` stays as the full reference.
+2. Documentation follows one transfer end to end through the actual files and functions (ARCHITECTURE.md).
 3. The work is grouped into four phases, each ending with a verification checkpoint.
 4. Node/MongoDB compatibility is verified. Transaction retries are bounded. Duplicates stay safe after uncertain commits. Concurrency tests assert database invariants.
 5. The reason the system funding account may go negative is documented (§3), and reconciliation checks it explicitly.
@@ -144,7 +144,7 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | | M9 | Observability polish | M5 | `tests/observability.test.js`: request IDs, no stack in production, no secrets in logs |
 | | M10 | GitHub Actions CI | M6 | Workflow file reviewed; status unverified until the workflow runs on GitHub |
 | | M11 | Performance test script + measured results | M8 | Actual numbers recorded |
-| **4 Docs & final** | M12 | README, START_HERE, LEARNING_GUIDE, ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md | M11 | Each documented command executed |
+| **4 Docs & final** | M12 | README, ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md | M11 | Each documented command executed |
 | | M13 | Final audit + requirement matrix | all | Full suite green, reconcile PASS, no TODO/stub |
 
 ## 8. Risks and assumptions
@@ -171,5 +171,5 @@ docs/                         AUDIT, IMPLEMENTATION_PLAN, START_HERE, LEARNING_G
 | M9 | ✅ Done | 236 tests pass (10 observability: log fields per request, error codes, no query strings, no passwords/JWTs/secret/bodies in any log line, field-name redaction, 500 hides internals but logs stack + request id, retry logs, LOG_LEVEL); unhandledRejection handler in server.js |
 | M10 | ✅ Done locally, ⚠️ unverified on GitHub | Workflow parsed with js-yaml; CI simulated from a clean `git archive HEAD` export outside OneDrive with no .env: `npm ci` (MongoDB binary landed in MONGOMS_DOWNLOAD_DIR, the cached path) + `npm test` -> 236/236 in 96 s. Simulation ran on Windows; the workflow runs on ubuntu-24.04, so it stays unverified until pushed to a repo you own |
 | M11 | ✅ Done | `npm run perf` run 3 times (10 connections x 10 s per scenario); real results and conditions in docs/PERFORMANCE.md + raw JSON in docs/perf-results/; correctness check and reconcile PASS after every run; 237 tests pass |
-| M12 | ✅ Done | README (17 sections, PowerShell), START_HERE, LEARNING_GUIDE (6 parts, 20 Q&A, exercises), ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md. Setup verified from a fresh `git archive` export (`npm ci`, `.env` commands, placeholder-secret refusal, `npm start`, `/health`); every README §13 request, seed/fund/freeze scripts, reconcile and perf executed. Not executed: winget installs, MongoDB service setup (Option B), Postman UI |
+| M12 | ✅ Done | README (PowerShell setup and API examples), ARCHITECTURE, TEST_REPORT, CONTRIBUTING.md. Setup verified from a fresh `git archive` export (`npm ci`, `.env` commands, placeholder-secret refusal, `npm start`, `/health`); every README §13 request, seed/fund/freeze scripts, reconcile and perf executed. Not executed: winget installs, MongoDB service setup (Option B), |
 | M13 | ✅ Done | Code review: no critical/high findings; medium (index drops via syncIndexes, also from reconcile) and low findings fixed with tests; runtime `npm audit` 0 vulnerabilities after in-range updates; Express 5 listen-callback log fixed; benchmark 503s confirmed as WriteConflict retry exhaustion with nothing stored (run 4); requirement matrix in TEST_REPORT.md; no TODO/stub; CI still unverified on GitHub |
